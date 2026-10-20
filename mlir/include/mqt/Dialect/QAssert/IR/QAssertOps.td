@@ -49,6 +49,8 @@ def SupOp
       (ins Arg<Variadic<QubitType>, "the target qubits">:$qubits_in);
   let results = (outs Variadic<QubitType>:$qubits_out);
   let assemblyFormat = "$qubits_in attr-dict `:` type($qubits_in)";
+
+  let hasVerifier = 1;
 }
 
 #endif // MLIR_DIALECT_QASSERT_IR_QASSERTOPS_TD

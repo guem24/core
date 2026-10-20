@@ -12,6 +12,8 @@
 
 #include "mqt/Dialect/QAssert/IR/QAssertDialect.h"
 
+#include "mlir/Support/LogicalResult.h"
+
 using namespace mlir;
 using namespace mlir::qassert;
 
@@ -31,6 +33,13 @@ void QAssertDialect::initialize() {
 //===----------------------------------------------------------------------===//
 // Operations
 //===----------------------------------------------------------------------===//
+
+LogicalResult SupOp::verify() {
+  if (getQubitsIn().empty()) {
+    return emitOpError("at least one qubit must be specified");
+  }
+  return success();
+}
 
 #define GET_OP_CLASSES
 #include "mqt/Dialect/QAssert/IR/QAssertOps.cpp.inc"
