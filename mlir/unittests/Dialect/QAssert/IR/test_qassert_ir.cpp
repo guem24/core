@@ -47,15 +47,15 @@ protected:
     return parseSourceString<ModuleOp>(source, context.get());
   }
 
-  /// Returns the only `qassert.sup` in @p moduleOp, or a null op.
-  static qassert::SupOp findSingleSupOp(ModuleOp moduleOp) {
-    qassert::SupOp found;
+  /// Returns the only operation of type @p OpT in @p moduleOp, or a null op.
+  template <typename OpT> static OpT findSingle(ModuleOp moduleOp) {
+    OpT found;
     size_t count = 0;
-    moduleOp->walk([&](qassert::SupOp op) {
+    moduleOp->walk([&](OpT op) {
       found = op;
       ++count;
     });
-    return count == 1 ? found : qassert::SupOp();
+    return count == 1 ? found : OpT();
   }
 };
 
@@ -73,7 +73,7 @@ TEST_F(QAssertIRTest, ParsesSingleQubitAssertion) {
   )mlir");
   ASSERT_TRUE(moduleOp);
 
-  auto sup = findSingleSupOp(*moduleOp);
+  auto sup = findSingle<qassert::SupOp>(*moduleOp);
   ASSERT_TRUE(sup);
   EXPECT_EQ(sup.getQubitsIn().size(), 1);
   EXPECT_EQ(sup.getQubitsOut().size(), 1);
@@ -99,7 +99,7 @@ TEST_F(QAssertIRTest, ParsesMultiQubitAssertion) {
   )mlir");
   ASSERT_TRUE(moduleOp);
 
-  auto sup = findSingleSupOp(*moduleOp);
+  auto sup = findSingle<qassert::SupOp>(*moduleOp);
   ASSERT_TRUE(sup);
   EXPECT_EQ(sup.getQubitsIn().size(), 2);
   EXPECT_EQ(sup.getQubitsOut().size(), 2);
@@ -143,7 +143,7 @@ TEST_F(QAssertIRTest, ReportsWriteEffect) {
   )mlir");
   ASSERT_TRUE(moduleOp);
 
-  auto sup = findSingleSupOp(*moduleOp);
+  auto sup = findSingle<qassert::SupOp>(*moduleOp);
   ASSERT_TRUE(sup);
 
   SmallVector<MemoryEffects::EffectInstance> effects;

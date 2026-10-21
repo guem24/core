@@ -22,11 +22,21 @@ include "mlir/Interfaces/SideEffectInterfaces.td"
 class QAssertOp<string mnemonic, list<Trait> traits = []>
     : Op<QAssertDialect, mnemonic, traits>;
 
-def SupOp
-    : QAssertOp<"sup", traits = [MemoryEffects<[MemWrite]>,
-                                 RangedTypesMatchWith<
-                                     "input and output qubit types match",
-                                     "qubits_in", "qubits_out", "$_self">]> {
+class QAssertQubitsOp<string mnemonic, list<Trait> traits = []>
+    : QAssertOp<mnemonic,
+                !listconcat([MemoryEffects<[MemWrite]>,
+                             RangedTypesMatchWith<
+                                 "input and output qubit types match",
+                                 "qubits_in", "qubits_out", "$_self">],
+                            traits)> {
+  let arguments =
+      (ins Arg<Variadic<QubitType>, "the target qubits">:$qubits_in);
+  let results = (outs Variadic<QubitType>:$qubits_out);
+  let assemblyFormat = "$qubits_in attr-dict `:` type($qubits_in)";
+  let hasVerifier = 1;
+}
+
+def SupOp : QAssertQubitsOp<"sup"> {
   let summary = "Assert that the given qubits are in superposition";
   let description = [{
     Asserts that measuring all `qubits_in` together in the computational
@@ -44,13 +54,6 @@ def SupOp
     %q2 = qassert.sup %q1 : !qco.qubit
     ```
     }];
-
-  let arguments =
-      (ins Arg<Variadic<QubitType>, "the target qubits">:$qubits_in);
-  let results = (outs Variadic<QubitType>:$qubits_out);
-  let assemblyFormat = "$qubits_in attr-dict `:` type($qubits_in)";
-
-  let hasVerifier = 1;
 }
 
 #endif // MLIR_DIALECT_QASSERT_IR_QASSERTOPS_TD

@@ -12,7 +12,12 @@
 
 #include "mqt/Dialect/QAssert/IR/QAssertDialect.h"
 
+#include "mlir/IR/Operation.h"
+#include "mlir/IR/ValueRange.h"
 #include "mlir/Support/LogicalResult.h"
+
+#include <cstddef>
+#include <memory>
 
 using namespace mlir;
 using namespace mlir::qassert;
@@ -34,11 +39,17 @@ void QAssertDialect::initialize() {
 // Operations
 //===----------------------------------------------------------------------===//
 
-LogicalResult SupOp::verify() {
-  if (getQubitsIn().empty()) {
-    return emitOpError("at least one qubit must be specified");
+static LogicalResult verifyMinQubits(Operation* op, ValueRange qubits,
+                                     size_t minQubits) {
+  if (qubits.size() < minQubits) {
+    return op->emitOpError("number of qubits must be at least ")
+           << minQubits << ", but got " << qubits.size();
   }
   return success();
+}
+
+LogicalResult SupOp::verify() {
+  return verifyMinQubits(*this, getQubitsIn(), 1);
 }
 
 #define GET_OP_CLASSES
