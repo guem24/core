@@ -52,5 +52,9 @@ LogicalResult SupOp::verify() {
   return verifyMinQubits(*this, getQubitsIn(), 1);
 }
 
+LogicalResult EntOp::verify() {
+  return verifyMinQubits(*this, getQubitsIn(), 2);
+}
+
 #define GET_OP_CLASSES
 #include "mqt/Dialect/QAssert/IR/QAssertOps.cpp.inc"
