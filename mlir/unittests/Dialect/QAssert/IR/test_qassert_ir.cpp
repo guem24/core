@@ -59,7 +59,7 @@ protected:
   }
 };
 
-TEST_F(QAssertIRTest, ParsesSingleQubitAssertion) {
+TEST_F(QAssertIRTest, ParsesSupSingleQubitAssertion) {
   auto moduleOp = parse(R"mlir(
     module {
       func.func @main() {
@@ -79,7 +79,7 @@ TEST_F(QAssertIRTest, ParsesSingleQubitAssertion) {
   EXPECT_EQ(sup.getQubitsOut().size(), 1);
 }
 
-TEST_F(QAssertIRTest, ParsesMultiQubitAssertion) {
+TEST_F(QAssertIRTest, ParsesSupMultiQubitAssertion) {
   auto moduleOp = parse(R"mlir(
     module {
       func.func @main() {
@@ -105,7 +105,7 @@ TEST_F(QAssertIRTest, ParsesMultiQubitAssertion) {
   EXPECT_EQ(sup.getQubitsOut().size(), 2);
 }
 
-TEST_F(QAssertIRTest, RejectsZeroQubits) {
+TEST_F(QAssertIRTest, RejectsSupZeroQubits) {
   EXPECT_FALSE(parse(R"mlir(
     module {
       func.func @main() {
@@ -116,7 +116,7 @@ TEST_F(QAssertIRTest, RejectsZeroQubits) {
   )mlir"));
 }
 
-TEST_F(QAssertIRTest, RejectsResultCountMismatch) {
+TEST_F(QAssertIRTest, RejectsSupResultCountMismatch) {
   EXPECT_FALSE(parse(R"mlir(
     module {
       func.func @main() {
@@ -130,7 +130,7 @@ TEST_F(QAssertIRTest, RejectsResultCountMismatch) {
   )mlir"));
 }
 
-TEST_F(QAssertIRTest, ReportsWriteEffect) {
+TEST_F(QAssertIRTest, ReportsSupWriteEffect) {
   auto moduleOp = parse(R"mlir(
     module {
       func.func @main() {
@@ -148,6 +148,80 @@ TEST_F(QAssertIRTest, ReportsWriteEffect) {
 
   SmallVector<MemoryEffects::EffectInstance> effects;
   sup.getEffects(effects);
+  ASSERT_EQ(effects.size(), 1);
+  EXPECT_TRUE(isa<MemoryEffects::Write>(effects.front().getEffect()));
+}
+
+TEST_F(QAssertIRTest, ParsesEntAssertion) {
+  auto moduleOp = parse(R"mlir(
+    module {
+      func.func @main() {
+        %a0 = qco.alloc : !qco.qubit
+        %b0 = qco.alloc : !qco.qubit
+        %c0 = qco.alloc : !qco.qubit
+        %a1, %b1, %c1 = qassert.ent %a0, %b0, %c0 : !qco.qubit, !qco.qubit, !qco.qubit
+        qco.sink %a1 : !qco.qubit
+        qco.sink %b1 : !qco.qubit
+        qco.sink %c1 : !qco.qubit
+        return
+      }
+    }
+  )mlir");
+  ASSERT_TRUE(moduleOp);
+
+  auto ent = findSingle<qassert::EntOp>(*moduleOp);
+  ASSERT_TRUE(ent);
+  EXPECT_EQ(ent.getQubitsIn().size(), 3);
+  EXPECT_EQ(ent.getQubitsOut().size(), 3);
+}
+
+TEST_F(QAssertIRTest, RejectsEntOneQubit) {
+  EXPECT_FALSE(parse(R"mlir(
+    module {
+      func.func @main() {
+        %q = qco.alloc : !qco.qubit
+        %r = qassert.ent %q : !qco.qubit
+        qco.sink %r : !qco.qubit
+        return
+      }
+    }
+  )mlir"));
+}
+
+TEST_F(QAssertIRTest, RejectsEntResultCountMismatch) {
+  EXPECT_FALSE(parse(R"mlir(
+    module {
+      func.func @main() {
+        %a = qco.alloc : !qco.qubit
+        %b = qco.alloc : !qco.qubit
+        %r = "qassert.ent"(%a, %b) : (!qco.qubit, !qco.qubit) -> !qco.qubit
+        qco.sink %r : !qco.qubit
+        return
+      }
+    }
+  )mlir"));
+}
+
+TEST_F(QAssertIRTest, ReportsEntWriteEffect) {
+  auto moduleOp = parse(R"mlir(
+    module {
+      func.func @main() {
+        %a0 = qco.alloc : !qco.qubit
+        %b0 = qco.alloc : !qco.qubit
+        %a1, %b1 = qassert.ent %a0, %b0 : !qco.qubit, !qco.qubit
+        qco.sink %a1 : !qco.qubit
+        qco.sink %b1 : !qco.qubit
+        return
+      }
+    }
+  )mlir");
+  ASSERT_TRUE(moduleOp);
+
+  auto ent = findSingle<qassert::EntOp>(*moduleOp);
+  ASSERT_TRUE(ent);
+
+  SmallVector<MemoryEffects::EffectInstance> effects;
+  ent.getEffects(effects);
   ASSERT_EQ(effects.size(), 1);
   EXPECT_TRUE(isa<MemoryEffects::Write>(effects.front().getEffect()));
 }
