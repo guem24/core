@@ -130,28 +130,6 @@ TEST_F(QAssertIRTest, RejectsSupResultCountMismatch) {
   )mlir"));
 }
 
-TEST_F(QAssertIRTest, ReportsSupWriteEffect) {
-  auto moduleOp = parse(R"mlir(
-    module {
-      func.func @main() {
-        %q0 = qco.alloc : !qco.qubit
-        %q1 = qassert.sup %q0 : !qco.qubit
-        qco.sink %q1 : !qco.qubit
-        return
-      }
-    }
-  )mlir");
-  ASSERT_TRUE(moduleOp);
-
-  auto sup = findSingle<qassert::SupOp>(*moduleOp);
-  ASSERT_TRUE(sup);
-
-  SmallVector<MemoryEffects::EffectInstance> effects;
-  sup.getEffects(effects);
-  ASSERT_EQ(effects.size(), 1);
-  EXPECT_TRUE(isa<MemoryEffects::Write>(effects.front().getEffect()));
-}
-
 TEST_F(QAssertIRTest, ParsesEntAssertion) {
   auto moduleOp = parse(R"mlir(
     module {
@@ -202,14 +180,15 @@ TEST_F(QAssertIRTest, RejectsEntResultCountMismatch) {
   )mlir"));
 }
 
-TEST_F(QAssertIRTest, ReportsEntWriteEffect) {
+TEST_F(QAssertIRTest, AssertionsArePure) {
   auto moduleOp = parse(R"mlir(
     module {
       func.func @main() {
         %a0 = qco.alloc : !qco.qubit
         %b0 = qco.alloc : !qco.qubit
-        %a1, %b1 = qassert.ent %a0, %b0 : !qco.qubit, !qco.qubit
-        qco.sink %a1 : !qco.qubit
+        %a1 = qassert.sup %a0 : !qco.qubit
+        %a2, %b1 = qassert.ent %a1, %b0 : !qco.qubit, !qco.qubit
+        qco.sink %a2 : !qco.qubit
         qco.sink %b1 : !qco.qubit
         return
       }
@@ -217,13 +196,12 @@ TEST_F(QAssertIRTest, ReportsEntWriteEffect) {
   )mlir");
   ASSERT_TRUE(moduleOp);
 
+  auto sup = findSingle<qassert::SupOp>(*moduleOp);
   auto ent = findSingle<qassert::EntOp>(*moduleOp);
+  ASSERT_TRUE(sup);
   ASSERT_TRUE(ent);
-
-  SmallVector<MemoryEffects::EffectInstance> effects;
-  ent.getEffects(effects);
-  ASSERT_EQ(effects.size(), 1);
-  EXPECT_TRUE(isa<MemoryEffects::Write>(effects.front().getEffect()));
+  EXPECT_TRUE(isPure(sup));
+  EXPECT_TRUE(isPure(ent));
 }
 
 } // namespace

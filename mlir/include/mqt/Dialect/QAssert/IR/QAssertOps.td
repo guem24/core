@@ -24,10 +24,9 @@ class QAssertOp<string mnemonic, list<Trait> traits = []>
 
 class QAssertQubitsOp<string mnemonic, list<Trait> traits = []>
     : QAssertOp<mnemonic,
-                !listconcat([MemoryEffects<[MemWrite]>,
-                             RangedTypesMatchWith<
-                                 "input and output qubit types match",
-                                 "qubits_in", "qubits_out", "$_self">],
+                !listconcat([Pure, RangedTypesMatchWith<
+                                       "input and output qubit types match",
+                                       "qubits_in", "qubits_out", "$_self">],
                             traits)> {
   let arguments =
       (ins Arg<Variadic<QubitType>, "the target qubits">:$qubits_in);
