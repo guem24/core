@@ -130,6 +130,24 @@ TEST_F(QAssertIRTest, RejectsSupResultCountMismatch) {
   )mlir"));
 }
 
+TEST_F(QAssertIRTest, RejectsSupInControlBody) {
+  EXPECT_FALSE(parse(R"mlir(
+    module {
+      func.func @main() {
+        %a0 = qco.alloc : !qco.qubit
+        %b0 = qco.alloc : !qco.qubit
+        %a1, %b1 = qco.ctrl(%a0) targets (%t0 = %b0) {
+          %t1 = qassert.sup %t0 : !qco.qubit
+          qco.yield %t1 : !qco.qubit
+        } : ({!qco.qubit}, {!qco.qubit})
+        qco.sink %a1 : !qco.qubit
+        qco.sink %b1 : !qco.qubit
+        return
+      }
+    }
+  )mlir"));
+}
+
 TEST_F(QAssertIRTest, ParsesEntAssertion) {
   auto moduleOp = parse(R"mlir(
     module {
@@ -174,6 +192,26 @@ TEST_F(QAssertIRTest, RejectsEntResultCountMismatch) {
         %b = qco.alloc : !qco.qubit
         %r = "qassert.ent"(%a, %b) : (!qco.qubit, !qco.qubit) -> !qco.qubit
         qco.sink %r : !qco.qubit
+        return
+      }
+    }
+  )mlir"));
+}
+
+TEST_F(QAssertIRTest, RejectsEntInControlBody) {
+  EXPECT_FALSE(parse(R"mlir(
+    module {
+      func.func @main() {
+        %c0 = qco.alloc : !qco.qubit
+        %a0 = qco.alloc : !qco.qubit
+        %b0 = qco.alloc : !qco.qubit
+        %c1, %a1, %b1 = qco.ctrl(%c0) targets (%t0 = %a0, %u0 = %b0) {
+          %t1, %u1 = qassert.ent %t0, %u0 : !qco.qubit, !qco.qubit
+          qco.yield %t1, %u1 : !qco.qubit, !qco.qubit
+        } : ({!qco.qubit}, {!qco.qubit, !qco.qubit})
+        qco.sink %c1 : !qco.qubit
+        qco.sink %a1 : !qco.qubit
+        qco.sink %b1 : !qco.qubit
         return
       }
     }

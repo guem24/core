@@ -111,24 +111,6 @@ TEST_F(QAssertOptimizationTest, CanonicalizeKeepsSupAssertion) {
   EXPECT_EQ(count<qco::AllocOp>(*moduleOp), 1);
 }
 
-TEST_F(QAssertOptimizationTest, RejectsSupInControlBody) {
-  EXPECT_FALSE(parse(R"mlir(
-    module {
-      func.func @main() {
-        %a0 = qco.alloc : !qco.qubit
-        %b0 = qco.alloc : !qco.qubit
-        %a1, %b1 = qco.ctrl(%a0) targets (%t0 = %b0) {
-          %t1 = qassert.sup %t0 : !qco.qubit
-          qco.yield %t1 : !qco.qubit
-        } : ({!qco.qubit}, {!qco.qubit})
-        qco.sink %a1 : !qco.qubit
-        qco.sink %b1 : !qco.qubit
-        return
-      }
-    }
-  )mlir"));
-}
-
 TEST_F(QAssertOptimizationTest, RemoveDeadGatesKeepsSupObservedGates) {
   auto moduleOp = parse(R"mlir(
     module {
@@ -177,26 +159,6 @@ TEST_F(QAssertOptimizationTest, CanonicalizeKeepsEntAssertion) {
   EXPECT_EQ(count<qco::HOp>(*moduleOp), 0);
   EXPECT_EQ(count<qassert::EntOp>(*moduleOp), 1);
   EXPECT_EQ(count<qco::AllocOp>(*moduleOp), 2);
-}
-
-TEST_F(QAssertOptimizationTest, RejectsEntInControlBody) {
-  EXPECT_FALSE(parse(R"mlir(
-    module {
-      func.func @main() {
-        %c0 = qco.alloc : !qco.qubit
-        %a0 = qco.alloc : !qco.qubit
-        %b0 = qco.alloc : !qco.qubit
-        %c1, %a1, %b1 = qco.ctrl(%c0) targets (%t0 = %a0, %u0 = %b0) {
-          %t1, %u1 = qassert.ent %t0, %u0 : !qco.qubit, !qco.qubit
-          qco.yield %t1, %u1 : !qco.qubit, !qco.qubit
-        } : ({!qco.qubit}, {!qco.qubit, !qco.qubit})
-        qco.sink %c1 : !qco.qubit
-        qco.sink %a1 : !qco.qubit
-        qco.sink %b1 : !qco.qubit
-        return
-      }
-    }
-  )mlir"));
 }
 
 TEST_F(QAssertOptimizationTest, RemoveDeadGatesKeepsEntObservedGates) {
