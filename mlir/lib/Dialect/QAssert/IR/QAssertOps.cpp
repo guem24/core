@@ -27,6 +27,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <memory>
+#include <utility>
 
 using namespace mlir;
 using namespace mlir::qassert;
@@ -93,7 +94,8 @@ LogicalResult EqOp::verify() {
   // fail the length check without computing the shift.
   const auto numQubits = getQubitsIn().size();
   const auto numAmplitudes = type.getNumElements();
-  if (numQubits >= 63 || numAmplitudes != int64_t{1} << numQubits) {
+  if (numQubits >= 63 ||
+      std::cmp_not_equal(numAmplitudes, uint64_t{1} << numQubits)) {
     return emitOpError("reference must have 2^n amplitudes for n = ")
            << numQubits << " qubits, but got " << numAmplitudes;
   }
