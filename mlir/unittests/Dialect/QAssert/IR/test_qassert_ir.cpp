@@ -18,6 +18,7 @@
 #include "gtest/gtest.h"
 
 #include "mlir/Dialect/Func/IR/FuncOps.h"
+#include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/IR/BuiltinOps.h"
 #include "mlir/IR/DialectRegistry.h"
 #include "mlir/IR/MLIRContext.h"
@@ -407,6 +408,162 @@ TEST_F(QAssertIRTest, RejectsEqInControlBody) {
   )mlir"));
 }
 
+TEST_F(QAssertIRTest, ParsesSpanAssertion) {
+  auto moduleOp = parse(R"mlir(
+    module {
+      func.func @main() {
+        %a0 = qco.alloc : !qco.qubit
+        %b0 = qco.alloc : !qco.qubit
+        %a1, %b1 = qassert.span ["00", "11"] %a0, %b0 : !qco.qubit, !qco.qubit
+        qco.sink %a1 : !qco.qubit
+        qco.sink %b1 : !qco.qubit
+        return
+      }
+    }
+  )mlir");
+  ASSERT_TRUE(moduleOp);
+
+  auto span = findSingle<qassert::SpanOp>(*moduleOp);
+  ASSERT_TRUE(span);
+  EXPECT_EQ(span.getQubitsIn().size(), 2);
+  EXPECT_EQ(span.getQubitsOut().size(), 2);
+  ASSERT_EQ(span.getStates().size(), 2);
+  EXPECT_EQ(cast<StringAttr>(span.getStates()[0]).getValue(), "00");
+}
+
+TEST_F(QAssertIRTest, ParsesSpanBasisState) {
+  auto moduleOp = parse(R"mlir(
+    module {
+      func.func @main() {
+        %q0 = qco.alloc : !qco.qubit
+        %q1 = qco.x %q0 : !qco.qubit
+        %q2 = qassert.span ["1"] %q1 : !qco.qubit
+        qco.sink %q2 : !qco.qubit
+        return
+      }
+    }
+  )mlir");
+  ASSERT_TRUE(moduleOp);
+
+  auto span = findSingle<qassert::SpanOp>(*moduleOp);
+  ASSERT_TRUE(span);
+  EXPECT_EQ(span.getStates().size(), 1);
+}
+
+TEST_F(QAssertIRTest, RejectsSpanZeroQubits) {
+  EXPECT_FALSE(parse(R"mlir(
+    module {
+      func.func @main() {
+        "qassert.span"() <{states = ["0"]}> : () -> ()
+        return
+      }
+    }
+  )mlir"));
+}
+
+TEST_F(QAssertIRTest, RejectsSpanEmptyStates) {
+  EXPECT_FALSE(parse(R"mlir(
+    module {
+      func.func @main() {
+        %q0 = qco.alloc : !qco.qubit
+        %q1 = qassert.span [] %q0 : !qco.qubit
+        qco.sink %q1 : !qco.qubit
+        return
+      }
+    }
+  )mlir"));
+}
+
+TEST_F(QAssertIRTest, RejectsSpanWrongBitstringLength) {
+  EXPECT_FALSE(parse(R"mlir(
+    module {
+      func.func @main() {
+        %a0 = qco.alloc : !qco.qubit
+        %b0 = qco.alloc : !qco.qubit
+        %a1, %b1 = qassert.span ["0"] %a0, %b0 : !qco.qubit, !qco.qubit
+        qco.sink %a1 : !qco.qubit
+        qco.sink %b1 : !qco.qubit
+        return
+      }
+    }
+  )mlir"));
+}
+
+TEST_F(QAssertIRTest, RejectsSpanInvalidCharacter) {
+  EXPECT_FALSE(parse(R"mlir(
+    module {
+      func.func @main() {
+        %a0 = qco.alloc : !qco.qubit
+        %b0 = qco.alloc : !qco.qubit
+        %a1, %b1 = qassert.span ["02"] %a0, %b0 : !qco.qubit, !qco.qubit
+        qco.sink %a1 : !qco.qubit
+        qco.sink %b1 : !qco.qubit
+        return
+      }
+    }
+  )mlir"));
+}
+
+TEST_F(QAssertIRTest, RejectsSpanDuplicateState) {
+  EXPECT_FALSE(parse(R"mlir(
+    module {
+      func.func @main() {
+        %a0 = qco.alloc : !qco.qubit
+        %b0 = qco.alloc : !qco.qubit
+        %a1, %b1 = qassert.span ["00", "00"] %a0, %b0 : !qco.qubit, !qco.qubit
+        qco.sink %a1 : !qco.qubit
+        qco.sink %b1 : !qco.qubit
+        return
+      }
+    }
+  )mlir"));
+}
+
+TEST_F(QAssertIRTest, RejectsSpanFullSpan) {
+  EXPECT_FALSE(parse(R"mlir(
+    module {
+      func.func @main() {
+        %q0 = qco.alloc : !qco.qubit
+        %q1 = qassert.span ["0", "1"] %q0 : !qco.qubit
+        qco.sink %q1 : !qco.qubit
+        return
+      }
+    }
+  )mlir"));
+}
+
+TEST_F(QAssertIRTest, RejectsSpanResultCountMismatch) {
+  EXPECT_FALSE(parse(R"mlir(
+    module {
+      func.func @main() {
+        %a = qco.alloc : !qco.qubit
+        %b = qco.alloc : !qco.qubit
+        %r = "qassert.span"(%a, %b) <{states = ["00"]}> : (!qco.qubit, !qco.qubit) -> !qco.qubit
+        qco.sink %r : !qco.qubit
+        return
+      }
+    }
+  )mlir"));
+}
+
+TEST_F(QAssertIRTest, RejectsSpanInControlBody) {
+  EXPECT_FALSE(parse(R"mlir(
+    module {
+      func.func @main() {
+        %a0 = qco.alloc : !qco.qubit
+        %b0 = qco.alloc : !qco.qubit
+        %a1, %b1 = qco.ctrl(%a0) targets (%t0 = %b0) {
+          %t1 = qassert.span ["0"] %t0 : !qco.qubit
+          qco.yield %t1 : !qco.qubit
+        } : ({!qco.qubit}, {!qco.qubit})
+        qco.sink %a1 : !qco.qubit
+        qco.sink %b1 : !qco.qubit
+        return
+      }
+    }
+  )mlir"));
+}
+
 TEST_F(QAssertIRTest, AssertionsArePure) {
   auto moduleOp = parse(R"mlir(
     module {
@@ -417,8 +574,9 @@ TEST_F(QAssertIRTest, AssertionsArePure) {
         %a2, %b1 = qassert.ent %a1, %b0 : !qco.qubit, !qco.qubit
         %b2 = qassert.eq dense<[(1.0, 0.0), (0.0, 0.0)]>
             : tensor<2xcomplex<f64>> %b1 : !qco.qubit
+        %b3 = qassert.span ["0"] %b2 : !qco.qubit
         qco.sink %a2 : !qco.qubit
-        qco.sink %b2 : !qco.qubit
+        qco.sink %b3 : !qco.qubit
         return
       }
     }
@@ -428,12 +586,15 @@ TEST_F(QAssertIRTest, AssertionsArePure) {
   auto sup = findSingle<qassert::SupOp>(*moduleOp);
   auto ent = findSingle<qassert::EntOp>(*moduleOp);
   auto eq = findSingle<qassert::EqOp>(*moduleOp);
+  auto span = findSingle<qassert::SpanOp>(*moduleOp);
   ASSERT_TRUE(sup);
   ASSERT_TRUE(ent);
   ASSERT_TRUE(eq);
+  ASSERT_TRUE(span);
   EXPECT_TRUE(isPure(sup));
   EXPECT_TRUE(isPure(ent));
   EXPECT_TRUE(isPure(eq));
+  EXPECT_TRUE(isPure(span));
 }
 
 } // namespace
