@@ -196,4 +196,55 @@ TEST_F(QAssertOptimizationTest, RemoveDeadGatesKeepsEntObservedGates) {
   }
 }
 
+TEST_F(QAssertOptimizationTest, CanonicalizeKeepsEqAssertion) {
+  auto moduleOp = parse(R"mlir(
+    module {
+      func.func @main() {
+        %q0 = qco.alloc : !qco.qubit
+        %q1 = qco.h %q0 : !qco.qubit
+        %q2 = qco.h %q1 : !qco.qubit
+        %q3 = qassert.eq dense<[(1.0, 0.0), (0.0, 0.0)]>
+            : tensor<2xcomplex<f64>> %q2 : !qco.qubit
+        qco.sink %q3 : !qco.qubit
+        return
+      }
+    }
+  )mlir");
+  ASSERT_TRUE(moduleOp);
+
+  ASSERT_TRUE(runPass(*moduleOp, createCanonicalizerPass()).succeeded());
+
+  EXPECT_EQ(count<qco::HOp>(*moduleOp), 0);
+  EXPECT_EQ(count<qassert::EqOp>(*moduleOp), 1);
+  EXPECT_EQ(count<qco::AllocOp>(*moduleOp), 1);
+}
+
+TEST_F(QAssertOptimizationTest, RemoveDeadGatesKeepsEqObservedGates) {
+  auto moduleOp = parse(R"mlir(
+    module {
+      func.func @main() {
+        %q0 = qco.alloc : !qco.qubit
+        %q1 = qco.h %q0 : !qco.qubit
+        %q2 = qassert.eq dense<[(0.7071067811865476, 0.0),
+                                (0.7071067811865476, 0.0)]>
+            : tensor<2xcomplex<f64>> %q1 : !qco.qubit
+        %q3 = qco.x %q2 : !qco.qubit
+        qco.sink %q3 : !qco.qubit
+        return
+      }
+    }
+  )mlir");
+  ASSERT_TRUE(moduleOp);
+
+  ASSERT_TRUE(runPass(*moduleOp, qco::createRemoveDeadGates()).succeeded());
+
+  EXPECT_EQ(count<qco::XOp>(*moduleOp), 0);
+  EXPECT_EQ(count<qco::HOp>(*moduleOp), 1);
+  ASSERT_EQ(count<qassert::EqOp>(*moduleOp), 1);
+
+  qassert::EqOp eq;
+  moduleOp->walk([&](qassert::EqOp op) { eq = op; });
+  EXPECT_TRUE(eq.getQubitsIn().front().getDefiningOp<qco::HOp>());
+}
+
 } // namespace
