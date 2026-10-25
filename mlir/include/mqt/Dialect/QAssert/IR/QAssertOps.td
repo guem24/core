@@ -89,4 +89,44 @@ def EntOp : QAssertQubitsOp<"ent"> {
     }];
 }
 
+def EqOp : QAssertQubitsOp<"eq"> {
+  let summary = "Assert that the given qubits are in a reference state";
+  let description = [{
+    Asserts that `qubits_in`, taken together, are in the state given by
+    `reference`. The assertion holds if `abs(<current|reference>)` is at
+    least `similarity_threshold`, which lies in `[0, 1]` and defaults to 1.
+    The global phase does not matter. This matches the state-vector form of
+    `assert-eq` in the MQT Debugger.
+
+    `reference` is a rank-one tensor of `2^n` `complex<f64>` amplitudes,
+    where `n` is the number of qubits. Operand 0 labels the most-significant
+    basis bit, as in `qco.unitary`. For example, `a = |1>` and `b = |0>`
+    give `[0, 0, 1, 0]` for the operands `a, b`.
+
+    The squared amplitudes must sum to 1 within `1e-2`, so hand-rounded
+    amplitudes such as `0.707` are accepted. A rounded reference does not
+    reach similarity 1, so it needs a threshold below 1, such as `0.999`.
+
+    If the qubits are entangled with qubits outside the list, they have no
+    state vector of their own, and the assertion cannot be evaluated. This
+    is an error, not a failed assertion.
+
+    The operation does not change the state. It returns its qubits in the
+    same order, which pins the assertion to this point in the program.
+
+    Example:
+    ```mlir
+    // (|00> + |11>) / sqrt(2)
+    %a3, %b2 = qassert.eq dense<[(0.7071067811865476, 0.0), (0.0, 0.0),
+                                 (0.0, 0.0), (0.7071067811865476, 0.0)]>
+        : tensor<4xcomplex<f64>> %a2, %b1 : !qco.qubit, !qco.qubit
+    ```
+    }];
+
+  let arguments = (ins ElementsAttr:$reference,
+      DefaultValuedAttr<F64Attr, "1.0">:$similarity_threshold,
+      Arg<Variadic<QubitType>, "the target qubits">:$qubits_in);
+  let assemblyFormat = "$reference $qubits_in attr-dict `:` type($qubits_in)";
+}
+
 #endif // MLIR_DIALECT_QASSERT_IR_QASSERTOPS_TD
