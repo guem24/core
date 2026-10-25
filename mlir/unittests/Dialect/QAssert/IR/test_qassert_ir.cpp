@@ -20,6 +20,7 @@
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/IR/BuiltinOps.h"
+#include "mlir/IR/Diagnostics.h"
 #include "mlir/IR/DialectRegistry.h"
 #include "mlir/IR/MLIRContext.h"
 #include "mlir/IR/OwningOpRef.h"
@@ -28,6 +29,7 @@
 #include "mlir/Support/LLVM.h"
 
 #include <memory>
+#include <string>
 
 using namespace mlir;
 
@@ -46,6 +48,19 @@ protected:
 
   [[nodiscard]] OwningOpRef<ModuleOp> parse(StringRef source) const {
     return parseSourceString<ModuleOp>(source, context.get());
+  }
+
+  /// Expects that parsing @p source fails with a diagnostic containing
+  /// @p expected.
+  void expectRejected(StringRef source, StringRef expected) const {
+    std::string diagnostics;
+    ScopedDiagnosticHandler handler(context.get(), [&](Diagnostic& message) {
+      diagnostics += message.str();
+      diagnostics += '\n';
+      return success();
+    });
+    EXPECT_FALSE(parse(source));
+    EXPECT_TRUE(StringRef(diagnostics).contains(expected)) << diagnostics;
   }
 
   /// Returns the only operation of type @p OpT in @p moduleOp, or a null op.
@@ -107,18 +122,19 @@ TEST_F(QAssertIRTest, ParsesSupMultiQubitAssertion) {
 }
 
 TEST_F(QAssertIRTest, RejectsSupZeroQubits) {
-  EXPECT_FALSE(parse(R"mlir(
+  expectRejected(R"mlir(
     module {
       func.func @main() {
         "qassert.sup"() : () -> ()
         return
       }
     }
-  )mlir"));
+  )mlir",
+                 "number of qubits must be at least 1");
 }
 
 TEST_F(QAssertIRTest, RejectsSupResultCountMismatch) {
-  EXPECT_FALSE(parse(R"mlir(
+  expectRejected(R"mlir(
     module {
       func.func @main() {
         %a = qco.alloc : !qco.qubit
@@ -128,11 +144,12 @@ TEST_F(QAssertIRTest, RejectsSupResultCountMismatch) {
         return
       }
     }
-  )mlir"));
+  )mlir",
+                 "input and output qubit types match");
 }
 
 TEST_F(QAssertIRTest, RejectsSupInControlBody) {
-  EXPECT_FALSE(parse(R"mlir(
+  expectRejected(R"mlir(
     module {
       func.func @main() {
         %a0 = qco.alloc : !qco.qubit
@@ -146,7 +163,8 @@ TEST_F(QAssertIRTest, RejectsSupInControlBody) {
         return
       }
     }
-  )mlir"));
+  )mlir",
+                 "body must contain only unitary operations");
 }
 
 TEST_F(QAssertIRTest, ParsesEntAssertion) {
@@ -173,7 +191,7 @@ TEST_F(QAssertIRTest, ParsesEntAssertion) {
 }
 
 TEST_F(QAssertIRTest, RejectsEntOneQubit) {
-  EXPECT_FALSE(parse(R"mlir(
+  expectRejected(R"mlir(
     module {
       func.func @main() {
         %q = qco.alloc : !qco.qubit
@@ -182,11 +200,12 @@ TEST_F(QAssertIRTest, RejectsEntOneQubit) {
         return
       }
     }
-  )mlir"));
+  )mlir",
+                 "number of qubits must be at least 2");
 }
 
 TEST_F(QAssertIRTest, RejectsEntResultCountMismatch) {
-  EXPECT_FALSE(parse(R"mlir(
+  expectRejected(R"mlir(
     module {
       func.func @main() {
         %a = qco.alloc : !qco.qubit
@@ -196,11 +215,12 @@ TEST_F(QAssertIRTest, RejectsEntResultCountMismatch) {
         return
       }
     }
-  )mlir"));
+  )mlir",
+                 "input and output qubit types match");
 }
 
 TEST_F(QAssertIRTest, RejectsEntInControlBody) {
-  EXPECT_FALSE(parse(R"mlir(
+  expectRejected(R"mlir(
     module {
       func.func @main() {
         %c0 = qco.alloc : !qco.qubit
@@ -216,7 +236,8 @@ TEST_F(QAssertIRTest, RejectsEntInControlBody) {
         return
       }
     }
-  )mlir"));
+  )mlir",
+                 "body must contain only unitary operations");
 }
 
 TEST_F(QAssertIRTest, ParsesEqAssertion) {
@@ -265,18 +286,19 @@ TEST_F(QAssertIRTest, ParsesEqRoundedReference) {
 }
 
 TEST_F(QAssertIRTest, RejectsEqZeroQubits) {
-  EXPECT_FALSE(parse(R"mlir(
+  expectRejected(R"mlir(
     module {
       func.func @main() {
         "qassert.eq"() <{reference = dense<[(1.0, 0.0)]> : tensor<1xcomplex<f64>>}> : () -> ()
         return
       }
     }
-  )mlir"));
+  )mlir",
+                 "number of qubits must be at least 1");
 }
 
 TEST_F(QAssertIRTest, RejectsEqRankTwoReference) {
-  EXPECT_FALSE(parse(R"mlir(
+  expectRejected(R"mlir(
     module {
       func.func @main() {
         %q0 = qco.alloc : !qco.qubit
@@ -286,11 +308,12 @@ TEST_F(QAssertIRTest, RejectsEqRankTwoReference) {
         return
       }
     }
-  )mlir"));
+  )mlir",
+                 "reference must be a rank-one tensor");
 }
 
 TEST_F(QAssertIRTest, RejectsEqNonComplexReference) {
-  EXPECT_FALSE(parse(R"mlir(
+  expectRejected(R"mlir(
     module {
       func.func @main() {
         %q0 = qco.alloc : !qco.qubit
@@ -299,11 +322,12 @@ TEST_F(QAssertIRTest, RejectsEqNonComplexReference) {
         return
       }
     }
-  )mlir"));
+  )mlir",
+                 "reference elements must have type complex<f64>");
 }
 
 TEST_F(QAssertIRTest, RejectsEqWrongReferenceLength) {
-  EXPECT_FALSE(parse(R"mlir(
+  expectRejected(R"mlir(
     module {
       func.func @main() {
         %q0 = qco.alloc : !qco.qubit
@@ -313,12 +337,13 @@ TEST_F(QAssertIRTest, RejectsEqWrongReferenceLength) {
         return
       }
     }
-  )mlir"));
+  )mlir",
+                 "reference must have 2^n amplitudes");
 }
 
 TEST_F(QAssertIRTest, RejectsEqNaNReference) {
   // NaN, not infinity: an infinite amplitude already fails the norm check.
-  EXPECT_FALSE(parse(R"mlir(
+  expectRejected(R"mlir(
     module {
       func.func @main() {
         %q0 = qco.alloc : !qco.qubit
@@ -328,11 +353,12 @@ TEST_F(QAssertIRTest, RejectsEqNaNReference) {
         return
       }
     }
-  )mlir"));
+  )mlir",
+                 "reference amplitudes must be finite");
 }
 
 TEST_F(QAssertIRTest, RejectsEqUnnormalizedReference) {
-  EXPECT_FALSE(parse(R"mlir(
+  expectRejected(R"mlir(
     module {
       func.func @main() {
         %q0 = qco.alloc : !qco.qubit
@@ -342,11 +368,12 @@ TEST_F(QAssertIRTest, RejectsEqUnnormalizedReference) {
         return
       }
     }
-  )mlir"));
+  )mlir",
+                 "squared reference amplitudes must sum to 1");
 }
 
 TEST_F(QAssertIRTest, RejectsEqThresholdAboveOne) {
-  EXPECT_FALSE(parse(R"mlir(
+  expectRejected(R"mlir(
     module {
       func.func @main() {
         %q0 = qco.alloc : !qco.qubit
@@ -357,11 +384,12 @@ TEST_F(QAssertIRTest, RejectsEqThresholdAboveOne) {
         return
       }
     }
-  )mlir"));
+  )mlir",
+                 "similarity threshold must be in [0, 1]");
 }
 
 TEST_F(QAssertIRTest, RejectsEqNaNThreshold) {
-  EXPECT_FALSE(parse(R"mlir(
+  expectRejected(R"mlir(
     module {
       func.func @main() {
         %q0 = qco.alloc : !qco.qubit
@@ -372,11 +400,12 @@ TEST_F(QAssertIRTest, RejectsEqNaNThreshold) {
         return
       }
     }
-  )mlir"));
+  )mlir",
+                 "similarity threshold must be in [0, 1]");
 }
 
 TEST_F(QAssertIRTest, RejectsEqResultCountMismatch) {
-  EXPECT_FALSE(parse(R"mlir(
+  expectRejected(R"mlir(
     module {
       func.func @main() {
         %a = qco.alloc : !qco.qubit
@@ -386,11 +415,12 @@ TEST_F(QAssertIRTest, RejectsEqResultCountMismatch) {
         return
       }
     }
-  )mlir"));
+  )mlir",
+                 "input and output qubit types match");
 }
 
 TEST_F(QAssertIRTest, RejectsEqInControlBody) {
-  EXPECT_FALSE(parse(R"mlir(
+  expectRejected(R"mlir(
     module {
       func.func @main() {
         %a0 = qco.alloc : !qco.qubit
@@ -405,7 +435,8 @@ TEST_F(QAssertIRTest, RejectsEqInControlBody) {
         return
       }
     }
-  )mlir"));
+  )mlir",
+                 "body must contain only unitary operations");
 }
 
 TEST_F(QAssertIRTest, ParsesSpanAssertion) {
@@ -451,18 +482,19 @@ TEST_F(QAssertIRTest, ParsesSpanBasisState) {
 }
 
 TEST_F(QAssertIRTest, RejectsSpanZeroQubits) {
-  EXPECT_FALSE(parse(R"mlir(
+  expectRejected(R"mlir(
     module {
       func.func @main() {
         "qassert.span"() <{states = ["0"]}> : () -> ()
         return
       }
     }
-  )mlir"));
+  )mlir",
+                 "number of qubits must be at least 1");
 }
 
 TEST_F(QAssertIRTest, RejectsSpanEmptyStates) {
-  EXPECT_FALSE(parse(R"mlir(
+  expectRejected(R"mlir(
     module {
       func.func @main() {
         %q0 = qco.alloc : !qco.qubit
@@ -471,11 +503,12 @@ TEST_F(QAssertIRTest, RejectsSpanEmptyStates) {
         return
       }
     }
-  )mlir"));
+  )mlir",
+                 "states must contain at least one bitstring");
 }
 
 TEST_F(QAssertIRTest, RejectsSpanWrongBitstringLength) {
-  EXPECT_FALSE(parse(R"mlir(
+  expectRejected(R"mlir(
     module {
       func.func @main() {
         %a0 = qco.alloc : !qco.qubit
@@ -486,11 +519,12 @@ TEST_F(QAssertIRTest, RejectsSpanWrongBitstringLength) {
         return
       }
     }
-  )mlir"));
+  )mlir",
+                 "state '0' must have one '0' or '1'");
 }
 
 TEST_F(QAssertIRTest, RejectsSpanInvalidCharacter) {
-  EXPECT_FALSE(parse(R"mlir(
+  expectRejected(R"mlir(
     module {
       func.func @main() {
         %a0 = qco.alloc : !qco.qubit
@@ -501,11 +535,12 @@ TEST_F(QAssertIRTest, RejectsSpanInvalidCharacter) {
         return
       }
     }
-  )mlir"));
+  )mlir",
+                 "state '02' must have one '0' or '1'");
 }
 
 TEST_F(QAssertIRTest, RejectsSpanDuplicateState) {
-  EXPECT_FALSE(parse(R"mlir(
+  expectRejected(R"mlir(
     module {
       func.func @main() {
         %a0 = qco.alloc : !qco.qubit
@@ -516,11 +551,12 @@ TEST_F(QAssertIRTest, RejectsSpanDuplicateState) {
         return
       }
     }
-  )mlir"));
+  )mlir",
+                 "state '00' appears more than once");
 }
 
 TEST_F(QAssertIRTest, RejectsSpanFullSpan) {
-  EXPECT_FALSE(parse(R"mlir(
+  expectRejected(R"mlir(
     module {
       func.func @main() {
         %q0 = qco.alloc : !qco.qubit
@@ -529,11 +565,12 @@ TEST_F(QAssertIRTest, RejectsSpanFullSpan) {
         return
       }
     }
-  )mlir"));
+  )mlir",
+                 "states must not list all 2 bitstrings");
 }
 
 TEST_F(QAssertIRTest, RejectsSpanResultCountMismatch) {
-  EXPECT_FALSE(parse(R"mlir(
+  expectRejected(R"mlir(
     module {
       func.func @main() {
         %a = qco.alloc : !qco.qubit
@@ -543,11 +580,12 @@ TEST_F(QAssertIRTest, RejectsSpanResultCountMismatch) {
         return
       }
     }
-  )mlir"));
+  )mlir",
+                 "input and output qubit types match");
 }
 
 TEST_F(QAssertIRTest, RejectsSpanInControlBody) {
-  EXPECT_FALSE(parse(R"mlir(
+  expectRejected(R"mlir(
     module {
       func.func @main() {
         %a0 = qco.alloc : !qco.qubit
@@ -561,7 +599,8 @@ TEST_F(QAssertIRTest, RejectsSpanInControlBody) {
         return
       }
     }
-  )mlir"));
+  )mlir",
+                 "body must contain only unitary operations");
 }
 
 TEST_F(QAssertIRTest, AssertionsArePure) {

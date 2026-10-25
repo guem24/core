@@ -16,8 +16,9 @@ def QAssertDialect : Dialect {
   let summary = "Quantum state assertions";
   let description = [{
         The QAssert dialect provides operations for asserting properties of
-        quantum states, such as superposition, entanglement, range or
-        equality to a classical value, at specific points in a quantum program.
+        quantum states at specific points in a quantum program: superposition
+        (`sup`), pairwise correlation (`ent`), equality to a reference state
+        (`eq`), and a basis-state span (`span`).
     }];
   let cppNamespace = "::mlir::qassert";
   let dependentDialects = ["::mlir::qco::QCODialect"];
