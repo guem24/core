@@ -218,6 +218,195 @@ TEST_F(QAssertIRTest, RejectsEntInControlBody) {
   )mlir"));
 }
 
+TEST_F(QAssertIRTest, ParsesEqAssertion) {
+  auto moduleOp = parse(R"mlir(
+    module {
+      func.func @main() {
+        %a0 = qco.alloc : !qco.qubit
+        %b0 = qco.alloc : !qco.qubit
+        %a1, %b1 = qassert.eq dense<[(0.7071067811865476, 0.0), (0.0, 0.0),
+                                     (0.0, 0.0), (0.7071067811865476, 0.0)]>
+            : tensor<4xcomplex<f64>> %a0, %b0 : !qco.qubit, !qco.qubit
+        qco.sink %a1 : !qco.qubit
+        qco.sink %b1 : !qco.qubit
+        return
+      }
+    }
+  )mlir");
+  ASSERT_TRUE(moduleOp);
+
+  auto eq = findSingle<qassert::EqOp>(*moduleOp);
+  ASSERT_TRUE(eq);
+  EXPECT_EQ(eq.getQubitsIn().size(), 2);
+  EXPECT_EQ(eq.getQubitsOut().size(), 2);
+  EXPECT_EQ(eq.getReference().getNumElements(), 4);
+  EXPECT_DOUBLE_EQ(eq.getSimilarityThreshold().convertToDouble(), 1.0);
+}
+
+TEST_F(QAssertIRTest, ParsesEqRoundedReference) {
+  auto moduleOp = parse(R"mlir(
+    module {
+      func.func @main() {
+        %q0 = qco.alloc : !qco.qubit
+        %q1 = qassert.eq dense<[(0.707, 0.0), (0.707, 0.0)]>
+            : tensor<2xcomplex<f64>> %q0 {similarity_threshold = 0.999 : f64}
+            : !qco.qubit
+        qco.sink %q1 : !qco.qubit
+        return
+      }
+    }
+  )mlir");
+  ASSERT_TRUE(moduleOp);
+
+  auto eq = findSingle<qassert::EqOp>(*moduleOp);
+  ASSERT_TRUE(eq);
+  EXPECT_DOUBLE_EQ(eq.getSimilarityThreshold().convertToDouble(), 0.999);
+}
+
+TEST_F(QAssertIRTest, RejectsEqZeroQubits) {
+  EXPECT_FALSE(parse(R"mlir(
+    module {
+      func.func @main() {
+        "qassert.eq"() <{reference = dense<[(1.0, 0.0)]> : tensor<1xcomplex<f64>>}> : () -> ()
+        return
+      }
+    }
+  )mlir"));
+}
+
+TEST_F(QAssertIRTest, RejectsEqRankTwoReference) {
+  EXPECT_FALSE(parse(R"mlir(
+    module {
+      func.func @main() {
+        %q0 = qco.alloc : !qco.qubit
+        %q1 = qassert.eq dense<[[(1.0, 0.0)], [(0.0, 0.0)]]>
+            : tensor<2x1xcomplex<f64>> %q0 : !qco.qubit
+        qco.sink %q1 : !qco.qubit
+        return
+      }
+    }
+  )mlir"));
+}
+
+TEST_F(QAssertIRTest, RejectsEqNonComplexReference) {
+  EXPECT_FALSE(parse(R"mlir(
+    module {
+      func.func @main() {
+        %q0 = qco.alloc : !qco.qubit
+        %q1 = qassert.eq dense<[1.0, 0.0]> : tensor<2xf64> %q0 : !qco.qubit
+        qco.sink %q1 : !qco.qubit
+        return
+      }
+    }
+  )mlir"));
+}
+
+TEST_F(QAssertIRTest, RejectsEqWrongReferenceLength) {
+  EXPECT_FALSE(parse(R"mlir(
+    module {
+      func.func @main() {
+        %q0 = qco.alloc : !qco.qubit
+        %q1 = qassert.eq dense<[(1.0, 0.0), (0.0, 0.0), (0.0, 0.0), (0.0, 0.0)]>
+            : tensor<4xcomplex<f64>> %q0 : !qco.qubit
+        qco.sink %q1 : !qco.qubit
+        return
+      }
+    }
+  )mlir"));
+}
+
+TEST_F(QAssertIRTest, RejectsEqNaNReference) {
+  // NaN, not infinity: an infinite amplitude already fails the norm check.
+  EXPECT_FALSE(parse(R"mlir(
+    module {
+      func.func @main() {
+        %q0 = qco.alloc : !qco.qubit
+        %q1 = qassert.eq dense<[(0x7FF8000000000000, 0.0), (0.0, 0.0)]>
+            : tensor<2xcomplex<f64>> %q0 : !qco.qubit
+        qco.sink %q1 : !qco.qubit
+        return
+      }
+    }
+  )mlir"));
+}
+
+TEST_F(QAssertIRTest, RejectsEqUnnormalizedReference) {
+  EXPECT_FALSE(parse(R"mlir(
+    module {
+      func.func @main() {
+        %q0 = qco.alloc : !qco.qubit
+        %q1 = qassert.eq dense<[(1.0, 0.0), (1.0, 0.0)]>
+            : tensor<2xcomplex<f64>> %q0 : !qco.qubit
+        qco.sink %q1 : !qco.qubit
+        return
+      }
+    }
+  )mlir"));
+}
+
+TEST_F(QAssertIRTest, RejectsEqThresholdAboveOne) {
+  EXPECT_FALSE(parse(R"mlir(
+    module {
+      func.func @main() {
+        %q0 = qco.alloc : !qco.qubit
+        %q1 = qassert.eq dense<[(1.0, 0.0), (0.0, 0.0)]>
+            : tensor<2xcomplex<f64>> %q0 {similarity_threshold = 1.5 : f64}
+            : !qco.qubit
+        qco.sink %q1 : !qco.qubit
+        return
+      }
+    }
+  )mlir"));
+}
+
+TEST_F(QAssertIRTest, RejectsEqNaNThreshold) {
+  EXPECT_FALSE(parse(R"mlir(
+    module {
+      func.func @main() {
+        %q0 = qco.alloc : !qco.qubit
+        %q1 = qassert.eq dense<[(1.0, 0.0), (0.0, 0.0)]>
+            : tensor<2xcomplex<f64>> %q0
+            {similarity_threshold = 0x7FF8000000000000 : f64} : !qco.qubit
+        qco.sink %q1 : !qco.qubit
+        return
+      }
+    }
+  )mlir"));
+}
+
+TEST_F(QAssertIRTest, RejectsEqResultCountMismatch) {
+  EXPECT_FALSE(parse(R"mlir(
+    module {
+      func.func @main() {
+        %a = qco.alloc : !qco.qubit
+        %b = qco.alloc : !qco.qubit
+        %r = "qassert.eq"(%a, %b) <{reference = dense<[(1.0, 0.0), (0.0, 0.0), (0.0, 0.0), (0.0, 0.0)]> : tensor<4xcomplex<f64>>}> : (!qco.qubit, !qco.qubit) -> !qco.qubit
+        qco.sink %r : !qco.qubit
+        return
+      }
+    }
+  )mlir"));
+}
+
+TEST_F(QAssertIRTest, RejectsEqInControlBody) {
+  EXPECT_FALSE(parse(R"mlir(
+    module {
+      func.func @main() {
+        %a0 = qco.alloc : !qco.qubit
+        %b0 = qco.alloc : !qco.qubit
+        %a1, %b1 = qco.ctrl(%a0) targets (%t0 = %b0) {
+          %t1 = qassert.eq dense<[(1.0, 0.0), (0.0, 0.0)]>
+              : tensor<2xcomplex<f64>> %t0 : !qco.qubit
+          qco.yield %t1 : !qco.qubit
+        } : ({!qco.qubit}, {!qco.qubit})
+        qco.sink %a1 : !qco.qubit
+        qco.sink %b1 : !qco.qubit
+        return
+      }
+    }
+  )mlir"));
+}
+
 TEST_F(QAssertIRTest, AssertionsArePure) {
   auto moduleOp = parse(R"mlir(
     module {
@@ -226,8 +415,10 @@ TEST_F(QAssertIRTest, AssertionsArePure) {
         %b0 = qco.alloc : !qco.qubit
         %a1 = qassert.sup %a0 : !qco.qubit
         %a2, %b1 = qassert.ent %a1, %b0 : !qco.qubit, !qco.qubit
+        %b2 = qassert.eq dense<[(1.0, 0.0), (0.0, 0.0)]>
+            : tensor<2xcomplex<f64>> %b1 : !qco.qubit
         qco.sink %a2 : !qco.qubit
-        qco.sink %b1 : !qco.qubit
+        qco.sink %b2 : !qco.qubit
         return
       }
     }
@@ -236,10 +427,13 @@ TEST_F(QAssertIRTest, AssertionsArePure) {
 
   auto sup = findSingle<qassert::SupOp>(*moduleOp);
   auto ent = findSingle<qassert::EntOp>(*moduleOp);
+  auto eq = findSingle<qassert::EqOp>(*moduleOp);
   ASSERT_TRUE(sup);
   ASSERT_TRUE(ent);
+  ASSERT_TRUE(eq);
   EXPECT_TRUE(isPure(sup));
   EXPECT_TRUE(isPure(ent));
+  EXPECT_TRUE(isPure(eq));
 }
 
 } // namespace
