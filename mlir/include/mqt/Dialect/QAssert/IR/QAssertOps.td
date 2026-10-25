@@ -129,4 +129,36 @@ def EqOp : QAssertQubitsOp<"eq"> {
   let assemblyFormat = "$reference $qubits_in attr-dict `:` type($qubits_in)";
 }
 
+def SpanOp : QAssertQubitsOp<"span"> {
+  let summary = "Assert that the given qubits can only be measured in the "
+                "given basis states";
+  let description = [{
+    Asserts that measuring `qubits_in` in the computational basis gives one
+    of the bitstrings in `states` with probability 1. Equivalently, every
+    basis state with a nonzero amplitude is listed. The amplitudes and their
+    phases do not matter, and the qubits may be entangled with other qubits.
+
+    Character `i` of each bitstring belongs to operand `i`, so the first
+    character is the most-significant bit, as in `qassert.eq`. For example,
+    `a = |1>` and `b = |0>` give `["10"]` for the operands `a, b`. A single
+    bitstring asserts a basis state, up to a global phase.
+
+    Each bitstring has one `0` or `1` per qubit, and no bitstring appears
+    twice. A list of all `2^n` bitstrings always holds and is rejected.
+
+    The operation does not change the state. It returns its qubits in the
+    same order, which pins the assertion to this point in the program.
+
+    Example:
+    ```mlir
+    // (|00> + |11>) / sqrt(2) can only be measured as 00 or 11
+    %a3, %b2 = qassert.span ["00", "11"] %a2, %b1 : !qco.qubit, !qco.qubit
+    ```
+    }];
+
+  let arguments = (ins StrArrayAttr:$states,
+      Arg<Variadic<QubitType>, "the target qubits">:$qubits_in);
+  let assemblyFormat = "$states $qubits_in attr-dict `:` type($qubits_in)";
+}
+
 #endif // MLIR_DIALECT_QASSERT_IR_QASSERTOPS_TD

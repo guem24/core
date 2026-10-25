@@ -19,6 +19,9 @@
 #include "mlir/Support/LLVM.h"
 #include "mlir/Support/LogicalResult.h"
 
+#include "llvm/ADT/DenseSet.h"
+#include "llvm/ADT/StringRef.h"
+
 #include <cmath>
 #include <complex>
 #include <cstddef>
@@ -111,6 +114,40 @@ LogicalResult EqOp::verify() {
   if (!(threshold >= 0.0 && threshold <= 1.0)) {
     return emitOpError("similarity threshold must be in [0, 1], but got ")
            << threshold;
+  }
+  return success();
+}
+
+LogicalResult SpanOp::verify() {
+  if (failed(verifyMinQubits(*this, getQubitsIn(), 1))) {
+    return failure();
+  }
+
+  auto states = getStates();
+  if (states.empty()) {
+    return emitOpError("states must contain at least one bitstring");
+  }
+
+  const auto numQubits = getQubitsIn().size();
+  llvm::SmallDenseSet<StringRef, 8> seen;
+  for (auto state : states.getAsValueRange<StringAttr>()) {
+    if (state.size() != numQubits ||
+        state.find_first_not_of("01") != StringRef::npos) {
+      return emitOpError("state '")
+             << state << "' must have one '0' or '1' for each of the "
+             << numQubits << " qubits";
+    }
+    if (!seen.insert(state).second) {
+      return emitOpError("state '") << state << "' appears more than once";
+    }
+  }
+
+  // A list of all 2^n bitstrings always holds. With no duplicates, the list is
+  // full iff it has 2^n entries; no list can reach 2^63 entries.
+  if (numQubits < 63 && states.size() == uint64_t{1} << numQubits) {
+    return emitOpError("states must not list all ")
+           << states.size() << " bitstrings, because the assertion always "
+           << "holds then";
   }
   return success();
 }
