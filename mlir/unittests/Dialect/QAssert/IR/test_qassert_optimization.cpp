@@ -247,4 +247,55 @@ TEST_F(QAssertOptimizationTest, RemoveDeadGatesKeepsEqObservedGates) {
   EXPECT_TRUE(eq.getQubitsIn().front().getDefiningOp<qco::HOp>());
 }
 
+TEST_F(QAssertOptimizationTest, CanonicalizeKeepsSpanAssertion) {
+  auto moduleOp = parse(R"mlir(
+    module {
+      func.func @main() {
+        %q0 = qco.alloc : !qco.qubit
+        %q1 = qco.h %q0 : !qco.qubit
+        %q2 = qco.h %q1 : !qco.qubit
+        %q3 = qassert.span ["0"] %q2 : !qco.qubit
+        qco.sink %q3 : !qco.qubit
+        return
+      }
+    }
+  )mlir");
+  ASSERT_TRUE(moduleOp);
+
+  ASSERT_TRUE(runPass(*moduleOp, createCanonicalizerPass()).succeeded());
+
+  EXPECT_EQ(count<qco::HOp>(*moduleOp), 0);
+  EXPECT_EQ(count<qassert::SpanOp>(*moduleOp), 1);
+  EXPECT_EQ(count<qco::AllocOp>(*moduleOp), 1);
+}
+
+TEST_F(QAssertOptimizationTest, RemoveDeadGatesKeepsSpanObservedGates) {
+  // Two qubits: on one qubit, |+> needs ["0", "1"], which is a full span.
+  auto moduleOp = parse(R"mlir(
+    module {
+      func.func @main() {
+        %a0 = qco.alloc : !qco.qubit
+        %b0 = qco.alloc : !qco.qubit
+        %a1 = qco.h %a0 : !qco.qubit
+        %a2, %b1 = qassert.span ["00", "10"] %a1, %b0 : !qco.qubit, !qco.qubit
+        %a3 = qco.x %a2 : !qco.qubit
+        qco.sink %a3 : !qco.qubit
+        qco.sink %b1 : !qco.qubit
+        return
+      }
+    }
+  )mlir");
+  ASSERT_TRUE(moduleOp);
+
+  ASSERT_TRUE(runPass(*moduleOp, qco::createRemoveDeadGates()).succeeded());
+
+  EXPECT_EQ(count<qco::XOp>(*moduleOp), 0);
+  EXPECT_EQ(count<qco::HOp>(*moduleOp), 1);
+  ASSERT_EQ(count<qassert::SpanOp>(*moduleOp), 1);
+
+  qassert::SpanOp span;
+  moduleOp->walk([&](qassert::SpanOp op) { span = op; });
+  EXPECT_TRUE(span.getQubitsIn().front().getDefiningOp<qco::HOp>());
+}
+
 } // namespace
