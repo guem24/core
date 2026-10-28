@@ -144,7 +144,7 @@ def SpanOp : QAssertQubitsOp<"span"> {
     bitstring asserts a basis state, up to a global phase.
 
     Each bitstring has one `0` or `1` per qubit, and no bitstring appears
-    twice. A list of all `2^n` bitstrings always holds and is rejected.
+    twice.
 
     The operation does not change the state. It returns its qubits in the
     same order, which pins the assertion to this point in the program.

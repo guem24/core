@@ -555,20 +555,6 @@ TEST_F(QAssertIRTest, RejectsSpanDuplicateState) {
                  "state '00' appears more than once");
 }
 
-TEST_F(QAssertIRTest, RejectsSpanFullSpan) {
-  expectRejected(R"mlir(
-    module {
-      func.func @main() {
-        %q0 = qco.alloc : !qco.qubit
-        %q1 = qassert.span ["0", "1"] %q0 : !qco.qubit
-        qco.sink %q1 : !qco.qubit
-        return
-      }
-    }
-  )mlir",
-                 "states must not list all 2 bitstrings");
-}
-
 TEST_F(QAssertIRTest, RejectsSpanResultCountMismatch) {
   expectRejected(R"mlir(
     module {

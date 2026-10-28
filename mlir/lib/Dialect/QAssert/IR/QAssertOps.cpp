@@ -144,13 +144,6 @@ LogicalResult SpanOp::verify() {
     }
   }
 
-  // A list of all 2^n bitstrings always holds. With no duplicates, the list is
-  // full iff it has 2^n entries; no list can reach 2^63 entries.
-  if (numQubits < 63 && states.size() == uint64_t{1} << numQubits) {
-    return emitOpError("states must not list all ")
-           << states.size() << " bitstrings, because the assertion always "
-           << "holds then";
-  }
   return success();
 }
 
