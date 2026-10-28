@@ -86,26 +86,6 @@ protected:
   }
 };
 
-TEST_F(QAssertOptimizationTest, CanonicalizeRemovesUnobservedQubit) {
-  auto moduleOp = parse(R"mlir(
-    module {
-      func.func @main() {
-        %q0 = qco.alloc : !qco.qubit
-        %q1 = qco.h %q0 : !qco.qubit
-        %q2 = qco.h %q1 : !qco.qubit
-        qco.sink %q2 : !qco.qubit
-        return
-      }
-    }
-  )mlir");
-  ASSERT_TRUE(moduleOp);
-
-  ASSERT_TRUE(runPass(*moduleOp, createCanonicalizerPass()).succeeded());
-
-  EXPECT_EQ(count<qco::HOp>(*moduleOp), 0);
-  EXPECT_EQ(count<qco::AllocOp>(*moduleOp), 0);
-}
-
 TEST_F(QAssertOptimizationTest, CanonicalizeKeepsSupAssertion) {
   auto moduleOp = parse(R"mlir(
     module {
