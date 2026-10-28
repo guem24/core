@@ -148,25 +148,6 @@ TEST_F(QAssertIRTest, RejectsSupResultCountMismatch) {
                  "input and output qubit types match");
 }
 
-TEST_F(QAssertIRTest, RejectsSupInControlBody) {
-  expectRejected(R"mlir(
-    module {
-      func.func @main() {
-        %a0 = qco.alloc : !qco.qubit
-        %b0 = qco.alloc : !qco.qubit
-        %a1, %b1 = qco.ctrl(%a0) targets (%t0 = %b0) {
-          %t1 = qassert.sup %t0 : !qco.qubit
-          qco.yield %t1 : !qco.qubit
-        } : ({!qco.qubit}, {!qco.qubit})
-        qco.sink %a1 : !qco.qubit
-        qco.sink %b1 : !qco.qubit
-        return
-      }
-    }
-  )mlir",
-                 "body must contain only unitary operations");
-}
-
 TEST_F(QAssertIRTest, ParsesEntAssertion) {
   auto moduleOp = parse(R"mlir(
     module {
@@ -217,27 +198,6 @@ TEST_F(QAssertIRTest, RejectsEntResultCountMismatch) {
     }
   )mlir",
                  "input and output qubit types match");
-}
-
-TEST_F(QAssertIRTest, RejectsEntInControlBody) {
-  expectRejected(R"mlir(
-    module {
-      func.func @main() {
-        %c0 = qco.alloc : !qco.qubit
-        %a0 = qco.alloc : !qco.qubit
-        %b0 = qco.alloc : !qco.qubit
-        %c1, %a1, %b1 = qco.ctrl(%c0) targets (%t0 = %a0, %u0 = %b0) {
-          %t1, %u1 = qassert.ent %t0, %u0 : !qco.qubit, !qco.qubit
-          qco.yield %t1, %u1 : !qco.qubit, !qco.qubit
-        } : ({!qco.qubit}, {!qco.qubit, !qco.qubit})
-        qco.sink %c1 : !qco.qubit
-        qco.sink %a1 : !qco.qubit
-        qco.sink %b1 : !qco.qubit
-        return
-      }
-    }
-  )mlir",
-                 "body must contain only unitary operations");
 }
 
 TEST_F(QAssertIRTest, ParsesEqAssertion) {
@@ -419,26 +379,6 @@ TEST_F(QAssertIRTest, RejectsEqResultCountMismatch) {
                  "input and output qubit types match");
 }
 
-TEST_F(QAssertIRTest, RejectsEqInControlBody) {
-  expectRejected(R"mlir(
-    module {
-      func.func @main() {
-        %a0 = qco.alloc : !qco.qubit
-        %b0 = qco.alloc : !qco.qubit
-        %a1, %b1 = qco.ctrl(%a0) targets (%t0 = %b0) {
-          %t1 = qassert.eq dense<[(1.0, 0.0), (0.0, 0.0)]>
-              : tensor<2xcomplex<f64>> %t0 : !qco.qubit
-          qco.yield %t1 : !qco.qubit
-        } : ({!qco.qubit}, {!qco.qubit})
-        qco.sink %a1 : !qco.qubit
-        qco.sink %b1 : !qco.qubit
-        return
-      }
-    }
-  )mlir",
-                 "body must contain only unitary operations");
-}
-
 TEST_F(QAssertIRTest, ParsesSpanAssertion) {
   auto moduleOp = parse(R"mlir(
     module {
@@ -570,18 +510,54 @@ TEST_F(QAssertIRTest, RejectsSpanResultCountMismatch) {
                  "input and output qubit types match");
 }
 
-TEST_F(QAssertIRTest, RejectsSpanInControlBody) {
+// QCO rejects assertions in all modifier bodies with one shared check, so one
+// assertion per modifier is enough.
+TEST_F(QAssertIRTest, RejectsAssertionInControlBody) {
   expectRejected(R"mlir(
     module {
       func.func @main() {
         %a0 = qco.alloc : !qco.qubit
         %b0 = qco.alloc : !qco.qubit
         %a1, %b1 = qco.ctrl(%a0) targets (%t0 = %b0) {
-          %t1 = qassert.span ["0"] %t0 : !qco.qubit
+          %t1 = qassert.sup %t0 : !qco.qubit
           qco.yield %t1 : !qco.qubit
         } : ({!qco.qubit}, {!qco.qubit})
         qco.sink %a1 : !qco.qubit
         qco.sink %b1 : !qco.qubit
+        return
+      }
+    }
+  )mlir",
+                 "body must contain only unitary operations");
+}
+
+TEST_F(QAssertIRTest, RejectsAssertionInInverseBody) {
+  expectRejected(R"mlir(
+    module {
+      func.func @main() {
+        %q0 = qco.alloc : !qco.qubit
+        %q1 = qco.inv(%t0 = %q0) {
+          %t1 = qassert.sup %t0 : !qco.qubit
+          qco.yield %t1 : !qco.qubit
+        } : {!qco.qubit} -> {!qco.qubit}
+        qco.sink %q1 : !qco.qubit
+        return
+      }
+    }
+  )mlir",
+                 "body must contain only unitary operations");
+}
+
+TEST_F(QAssertIRTest, RejectsAssertionInPowerBody) {
+  expectRejected(R"mlir(
+    module {
+      func.func @main(%exponent : f64) {
+        %q0 = qco.alloc : !qco.qubit
+        %q1 = qco.pow(%exponent) (%t0 = %q0) {
+          %t1 = qassert.sup %t0 : !qco.qubit
+          qco.yield %t1 : !qco.qubit
+        } : {!qco.qubit} -> {!qco.qubit}
+        qco.sink %q1 : !qco.qubit
         return
       }
     }
