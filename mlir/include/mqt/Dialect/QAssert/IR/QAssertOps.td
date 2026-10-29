@@ -44,9 +44,6 @@ def SupOp : QAssertQubitsOp<"sup"> {
     To assert that each qubit is in superposition individually, use one
     `qassert.sup` per qubit.
 
-    The operation does not change the state. It returns its qubits in the
-    same order, which pins the assertion to this point in the program.
-
     Example:
     ```mlir
     %q1 = qco.h %q0 : !qco.qubit
@@ -56,26 +53,17 @@ def SupOp : QAssertQubitsOp<"sup"> {
 }
 
 def EntOp : QAssertQubitsOp<"ent"> {
-  let summary = "Assert that every pair of the given qubits is correlated";
+  let summary = "Assert that the given qubits are entangled";
   let description = [{
-    Asserts that every pair of `qubits_in` is correlated: the two qubits
-    are not independent, so a measurement on one of them can tell you
-    something about the other. A Bell pair or a GHZ state passes. The state
-    `|+>|+>` fails: each qubit is in superposition, but they are
-    independent.
+    Asserts that `qubits_in` are entangled with each other. This means that
+    you cannot split them into two groups that each have a state of their
+    own. The entanglement may also include qubits that are not listed.
 
-    Formally, for every pair (A, B), the quantum mutual information
-    `S(rho_A) + S(rho_B) - S(rho_AB)` is greater than 0. `S` is the von
-    Neumann entropy and `rho_X` is the state of `X` alone. This matches
-    `assert-ent` in the MQT Debugger.
-
-    Correlation is weaker than entanglement when the qubits are also
-    entangled with other qubits. For example, after a GHZ state on three
-    qubits, asserting two of them passes, although these two alone are
-    not entangled.
-
-    The operation does not change the state. It returns its qubits in the
-    same order, which pins the assertion to this point in the program.
+    For example, after preparing a GHZ state on `a, b, c`, asserting `a, b`
+    holds, because `a` and `b` are entangled through the GHZ state. If `c` was
+    never entangled with `a` and `b`, asserting `a, b, c` fails. The state
+    `|+>|+>` also fails: both qubits are in superposition, but each one has a
+    state of its own.
 
     Example:
     ```mlir
@@ -93,26 +81,17 @@ def EqOp : QAssertQubitsOp<"eq"> {
   let summary = "Assert that the given qubits are in a reference state";
   let description = [{
     Asserts that `qubits_in`, taken together, are in the state given by
-    `reference`. The assertion holds if `abs(<current|reference>)` is at
-    least `similarity_threshold`, which lies in `[0, 1]` and defaults to 1.
-    The global phase does not matter. This matches the state-vector form of
-    `assert-eq` in the MQT Debugger.
+    `reference`. The reference is scaled to length 1, and the assertion holds
+    if `abs(<current|reference>)` is at least `similarity_threshold`, which
+    lies in `[0, 1]` and defaults to 1. The global phase does not matter.
 
     `reference` is a rank-one tensor of `2^n` `complex<f64>` amplitudes,
     where `n` is the number of qubits. Operand 0 labels the most-significant
     basis bit, as in `qco.unitary`. For example, `a = |1>` and `b = |0>`
     give `[0, 0, 1, 0]` for the operands `a, b`.
 
-    The squared amplitudes must sum to 1 within `1e-2`, so hand-rounded
-    amplitudes such as `0.707` are accepted. A rounded reference does not
-    reach similarity 1, so it needs a threshold below 1, such as `0.999`.
-
-    If the qubits are entangled with qubits outside the list, they have no
-    state vector of their own, and the assertion cannot be evaluated. This
-    is an error, not a failed assertion.
-
-    The operation does not change the state. It returns its qubits in the
-    same order, which pins the assertion to this point in the program.
+    The squared amplitudes must sum to 1 within `1e-2`. This catches typos in
+    the amplitudes but accepts rounded values.
 
     Example:
     ```mlir
@@ -145,9 +124,6 @@ def SpanOp : QAssertQubitsOp<"span"> {
 
     Each bitstring has one `0` or `1` per qubit, and no bitstring appears
     twice.
-
-    The operation does not change the state. It returns its qubits in the
-    same order, which pins the assertion to this point in the program.
 
     Example:
     ```mlir

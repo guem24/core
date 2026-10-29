@@ -66,9 +66,9 @@ LogicalResult EntOp::verify() {
   return verifyMinQubits(*this, getQubitsIn(), 2);
 }
 
-// The MQT Debugger does not check the norm. Without the check, a reference
-// that is too long can pass a wrong state even at threshold 1: [1, 1] against
-// |0> gives similarity 1. The tolerance accepts hand-rounded amplitudes such as
+// The similarity scales the reference to length 1, so its norm does not change
+// the result. The check catches typos, which scaling would turn into a
+// different valid state. The tolerance accepts rounded amplitudes such as
 // 0.707.
 static constexpr double REFERENCE_NORM_TOLERANCE = 1e-2;
 
