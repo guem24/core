@@ -200,8 +200,7 @@ TEST_F(QAssertOptimizationTest, CanonicalizeKeepsEqAssertion) {
         %q0 = qco.alloc : !qco.qubit
         %q1 = qco.h %q0 : !qco.qubit
         %q2 = qco.h %q1 : !qco.qubit
-        %q3 = qassert.eq dense<[(1.0, 0.0), (0.0, 0.0)]>
-            : tensor<2xcomplex<f64>> %q2 : !qco.qubit
+        %q3 = qassert.eq %q2 == [1, 0] : !qco.qubit
         qco.sink %q3 : !qco.qubit
         return
       }
@@ -222,9 +221,7 @@ TEST_F(QAssertOptimizationTest, RemoveDeadGatesKeepsEqObservedGates) {
       func.func @main() {
         %q0 = qco.alloc : !qco.qubit
         %q1 = qco.h %q0 : !qco.qubit
-        %q2 = qassert.eq dense<[(0.7071067811865476, 0.0),
-                                (0.7071067811865476, 0.0)]>
-            : tensor<2xcomplex<f64>> %q1 : !qco.qubit
+        %q2 = qassert.eq %q1 == [0.707, 0.707] : !qco.qubit
         %q3 = qco.x %q2 : !qco.qubit
         qco.sink %q3 : !qco.qubit
         return
@@ -309,9 +306,8 @@ TEST_F(QAssertOptimizationTest, ChainedAssertionsSurviveCleanup) {
         } : ({!qco.qubit}, {!qco.qubit})
         %a3, %b2 = qassert.sup %a2, %b1 : !qco.qubit, !qco.qubit
         %a4, %b3 = qassert.ent %a3, %b2 : !qco.qubit, !qco.qubit
-        %a5, %b4 = qassert.eq dense<[(0.7071067811865476, 0.0), (0.0, 0.0),
-                                     (0.0, 0.0), (0.7071067811865476, 0.0)]>
-            : tensor<4xcomplex<f64>> %a4, %b3 : !qco.qubit, !qco.qubit
+        %a5, %b4 = qassert.eq %a4, %b3 == [0.707, 0, 0, 0.707]
+            : !qco.qubit, !qco.qubit
         %a6, %b5 = qassert.span ["00", "11"] %a5, %b4 : !qco.qubit, !qco.qubit
         qco.sink %a6 : !qco.qubit
         qco.sink %b5 : !qco.qubit
@@ -409,9 +405,7 @@ TEST_F(QAssertOptimizationTest, ReorderedOperandsKeepWires) {
         %a1 = qco.x %a0 : !qco.qubit
         %a2, %b1 = qassert.span ["10"] %a1, %b0 : !qco.qubit, !qco.qubit
         %b2, %a3 = qassert.span ["01"] %b1, %a2 : !qco.qubit, !qco.qubit
-        %a4, %b3 = qassert.eq dense<[(0.0, 0.0), (0.0, 0.0),
-                                     (1.0, 0.0), (0.0, 0.0)]>
-            : tensor<4xcomplex<f64>> %a3, %b2 : !qco.qubit, !qco.qubit
+        %a4, %b3 = qassert.eq %a3, %b2 == [0, 0, 1, 0] : !qco.qubit, !qco.qubit
         qco.sink %a4 : !qco.qubit
         qco.sink %b3 : !qco.qubit
         return

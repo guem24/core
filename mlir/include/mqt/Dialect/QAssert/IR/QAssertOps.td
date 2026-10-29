@@ -85,10 +85,17 @@ def EqOp : QAssertQubitsOp<"eq"> {
     if `abs(<current|reference>)` is at least `similarity_threshold`, which
     lies in `[0, 1]` and defaults to 1. The global phase does not matter.
 
-    `reference` is a rank-one tensor of `2^n` `complex<f64>` amplitudes,
-    where `n` is the number of qubits. Operand 0 labels the most-significant
-    basis bit, as in `qco.unitary`. For example, `a = |1>` and `b = |0>`
-    give `[0, 0, 1, 0]` for the operands `a, b`.
+    `reference` lists `2^n` amplitudes, where `n` is the number of qubits.
+    Each amplitude is a real number or a `(real, imaginary)` pair. The
+    reference is stored as a rank-one tensor of `complex<f64>`. Operand 0 labels the
+    most-significant basis bit, as in `qco.unitary`. For example, `a = |1>`
+    and `b = |0>` give `[0, 0, 1, 0]` for the operands `a, b`.
+
+    Instead of a list, `reference` can also be written in ket notation, such
+    as `0.707|00> + 0.707|11>`. The bitstrings use the same bit order. A
+    missing coefficient is 1, bitstrings that do not appear have amplitude 0,
+    and a repeated bitstring adds up. Ket notation supports at most 20 qubits.
+    The reference is always printed as a list.
 
     The squared amplitudes must sum to 1 within `1e-2`. This catches typos in
     the amplitudes but accepts rounded values.
@@ -96,16 +103,25 @@ def EqOp : QAssertQubitsOp<"eq"> {
     Example:
     ```mlir
     // (|00> + |11>) / sqrt(2)
-    %a3, %b2 = qassert.eq dense<[(0.7071067811865476, 0.0), (0.0, 0.0),
-                                 (0.0, 0.0), (0.7071067811865476, 0.0)]>
-        : tensor<4xcomplex<f64>> %a2, %b1 : !qco.qubit, !qco.qubit
+    %a3, %b2 = qassert.eq %a2, %b1 == [0.707, 0, 0, 0.707]
+        : !qco.qubit, !qco.qubit
+
+    // The same state in ket notation
+    %a4, %b3 = qassert.eq %a3, %b2 == 0.707|00> + 0.707|11>
+        : !qco.qubit, !qco.qubit
+
+    // |+i> = (|0> + i|1>) / sqrt(2), with a threshold
+    %q1 = qassert.eq %q0 == [0.707, (0, 0.707)] threshold 0.999 : !qco.qubit
     ```
     }];
 
   let arguments = (ins ElementsAttr:$reference,
       DefaultValuedAttr<F64Attr, "1.0">:$similarity_threshold,
       Arg<Variadic<QubitType>, "the target qubits">:$qubits_in);
-  let assemblyFormat = "$reference $qubits_in attr-dict `:` type($qubits_in)";
+  let assemblyFormat = [{
+    $qubits_in custom<Reference>($reference)
+    (`threshold` $similarity_threshold^)? attr-dict `:` type($qubits_in)
+  }];
 }
 
 def SpanOp : QAssertQubitsOp<"span"> {

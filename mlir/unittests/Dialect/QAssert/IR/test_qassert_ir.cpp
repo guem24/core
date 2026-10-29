@@ -28,6 +28,10 @@
 #include "mlir/Parser/Parser.h"
 #include "mlir/Support/LLVM.h"
 
+#include "llvm/ADT/STLExtras.h"
+#include "llvm/Support/raw_ostream.h"
+
+#include <complex>
 #include <memory>
 #include <string>
 
@@ -206,9 +210,8 @@ TEST_F(QAssertIRTest, ParsesEqAssertion) {
       func.func @main() {
         %a0 = qco.alloc : !qco.qubit
         %b0 = qco.alloc : !qco.qubit
-        %a1, %b1 = qassert.eq dense<[(0.7071067811865476, 0.0), (0.0, 0.0),
-                                     (0.0, 0.0), (0.7071067811865476, 0.0)]>
-            : tensor<4xcomplex<f64>> %a0, %b0 : !qco.qubit, !qco.qubit
+        %a1, %b1 = qassert.eq %a0, %b0 == [0.707, 0, 0, 0.707]
+            : !qco.qubit, !qco.qubit
         qco.sink %a1 : !qco.qubit
         qco.sink %b1 : !qco.qubit
         return
@@ -225,14 +228,12 @@ TEST_F(QAssertIRTest, ParsesEqAssertion) {
   EXPECT_DOUBLE_EQ(eq.getSimilarityThreshold().convertToDouble(), 1.0);
 }
 
-TEST_F(QAssertIRTest, ParsesEqRoundedReference) {
+TEST_F(QAssertIRTest, ParsesEqThreshold) {
   auto moduleOp = parse(R"mlir(
     module {
       func.func @main() {
         %q0 = qco.alloc : !qco.qubit
-        %q1 = qassert.eq dense<[(0.707, 0.0), (0.707, 0.0)]>
-            : tensor<2xcomplex<f64>> %q0 {similarity_threshold = 0.999 : f64}
-            : !qco.qubit
+        %q1 = qassert.eq %q0 == [0.707, 0.707] threshold 0.999 : !qco.qubit
         qco.sink %q1 : !qco.qubit
         return
       }
@@ -243,6 +244,174 @@ TEST_F(QAssertIRTest, ParsesEqRoundedReference) {
   auto eq = findSingle<qassert::EqOp>(*moduleOp);
   ASSERT_TRUE(eq);
   EXPECT_DOUBLE_EQ(eq.getSimilarityThreshold().convertToDouble(), 0.999);
+}
+
+TEST_F(QAssertIRTest, ParsesEqRealAndComplexAmplitudes) {
+  auto moduleOp = parse(R"mlir(
+    module {
+      func.func @main() {
+        %q0 = qco.alloc : !qco.qubit
+        %q1 = qassert.eq %q0 == [0.707, (-0.5, 0.5)] : !qco.qubit
+        qco.sink %q1 : !qco.qubit
+        return
+      }
+    }
+  )mlir");
+  ASSERT_TRUE(moduleOp);
+
+  auto eq = findSingle<qassert::EqOp>(*moduleOp);
+  ASSERT_TRUE(eq);
+  const auto amplitudes =
+      llvm::to_vector(cast<DenseElementsAttr>(eq.getReference())
+                          .getValues<std::complex<double>>());
+  ASSERT_EQ(amplitudes.size(), 2);
+  EXPECT_EQ(amplitudes[0], std::complex<double>(0.707, 0.0));
+  EXPECT_EQ(amplitudes[1], std::complex<double>(-0.5, 0.5));
+}
+
+TEST_F(QAssertIRTest, PrintsEqInParsableSyntax) {
+  auto moduleOp = parse(R"mlir(
+    module {
+      func.func @main() {
+        %q0 = qco.alloc : !qco.qubit
+        %q1 = qassert.eq %q0 == [0.707, (0.0, -0.707)] threshold 0.999
+            : !qco.qubit
+        qco.sink %q1 : !qco.qubit
+        return
+      }
+    }
+  )mlir");
+  ASSERT_TRUE(moduleOp);
+
+  std::string printed;
+  llvm::raw_string_ostream stream(printed);
+  moduleOp->print(stream);
+  EXPECT_TRUE(StringRef(printed).contains("qassert.eq %")) << printed;
+  EXPECT_TRUE(StringRef(printed).contains("== [")) << printed;
+  EXPECT_TRUE(StringRef(printed).contains("threshold")) << printed;
+
+  auto reparsed = parse(printed);
+  ASSERT_TRUE(reparsed) << printed;
+  auto original = findSingle<qassert::EqOp>(*moduleOp);
+  auto roundTripped = findSingle<qassert::EqOp>(*reparsed);
+  ASSERT_TRUE(roundTripped);
+  EXPECT_EQ(roundTripped.getReference(), original.getReference());
+  EXPECT_EQ(roundTripped.getSimilarityThreshold(),
+            original.getSimilarityThreshold());
+}
+
+TEST_F(QAssertIRTest, ParsesEqKetNotation) {
+  auto moduleOp = parse(R"mlir(
+    module {
+      func.func @main() {
+        %a0 = qco.alloc : !qco.qubit
+        %b0 = qco.alloc : !qco.qubit
+        %a1, %b1 = qassert.eq %a0, %b0 == 0.6|01> - (0, 0.8)|10>
+            : !qco.qubit, !qco.qubit
+        qco.sink %a1 : !qco.qubit
+        qco.sink %b1 : !qco.qubit
+        return
+      }
+    }
+  )mlir");
+  ASSERT_TRUE(moduleOp);
+
+  auto eq = findSingle<qassert::EqOp>(*moduleOp);
+  ASSERT_TRUE(eq);
+  const auto amplitudes =
+      llvm::to_vector(cast<DenseElementsAttr>(eq.getReference())
+                          .getValues<std::complex<double>>());
+  ASSERT_EQ(amplitudes.size(), 4);
+  EXPECT_EQ(amplitudes[0], std::complex<double>(0.0, 0.0));
+  EXPECT_EQ(amplitudes[1], std::complex<double>(0.6, 0.0));
+  EXPECT_EQ(amplitudes[2], std::complex<double>(0.0, -0.8));
+  EXPECT_EQ(amplitudes[3], std::complex<double>(0.0, 0.0));
+}
+
+TEST_F(QAssertIRTest, ParsesEqKetDefaultsAndRepeats) {
+  // A missing coefficient is 1, and a repeated bitstring adds up.
+  auto moduleOp = parse(R"mlir(
+    module {
+      func.func @main() {
+        %q0 = qco.alloc : !qco.qubit
+        %q1 = qassert.eq %q0 == |0> - 0.5|1> + 0.5|1> : !qco.qubit
+        qco.sink %q1 : !qco.qubit
+        return
+      }
+    }
+  )mlir");
+  ASSERT_TRUE(moduleOp);
+
+  auto eq = findSingle<qassert::EqOp>(*moduleOp);
+  ASSERT_TRUE(eq);
+  const auto amplitudes =
+      llvm::to_vector(cast<DenseElementsAttr>(eq.getReference())
+                          .getValues<std::complex<double>>());
+  ASSERT_EQ(amplitudes.size(), 2);
+  EXPECT_EQ(amplitudes[0], std::complex<double>(1.0, 0.0));
+  EXPECT_EQ(amplitudes[1], std::complex<double>(0.0, 0.0));
+}
+
+TEST_F(QAssertIRTest, RejectsEqKetDifferentLengths) {
+  expectRejected(R"mlir(
+    module {
+      func.func @main() {
+        %a0 = qco.alloc : !qco.qubit
+        %b0 = qco.alloc : !qco.qubit
+        %a1, %b1 = qassert.eq %a0, %b0 == 0.707|0> + 0.707|11> : !qco.qubit, !qco.qubit
+        qco.sink %a1 : !qco.qubit
+        qco.sink %b1 : !qco.qubit
+        return
+      }
+    }
+  )mlir",
+                 "all ket bitstrings must have 1 qubits");
+}
+
+TEST_F(QAssertIRTest, RejectsEqKetInvalidBitstring) {
+  expectRejected(R"mlir(
+    module {
+      func.func @main() {
+        %a0 = qco.alloc : !qco.qubit
+        %b0 = qco.alloc : !qco.qubit
+        %a1, %b1 = qassert.eq %a0, %b0 == |02> : !qco.qubit, !qco.qubit
+        qco.sink %a1 : !qco.qubit
+        qco.sink %b1 : !qco.qubit
+        return
+      }
+    }
+  )mlir",
+                 "expected a bitstring of '0' and '1', but got '02'");
+}
+
+TEST_F(QAssertIRTest, RejectsEqKetTooManyQubits) {
+  expectRejected(R"mlir(
+    module {
+      func.func @main() {
+        %a0 = qco.alloc : !qco.qubit
+        %b0 = qco.alloc : !qco.qubit
+        %a1, %b1 = qassert.eq %a0, %b0 == |000000000000000000000> : !qco.qubit, !qco.qubit
+        qco.sink %a1 : !qco.qubit
+        qco.sink %b1 : !qco.qubit
+        return
+      }
+    }
+  )mlir",
+                 "ket bitstrings can have at most 20 qubits");
+}
+
+TEST_F(QAssertIRTest, RejectsEqHexadecimalAmplitude) {
+  expectRejected(R"mlir(
+    module {
+      func.func @main() {
+        %q0 = qco.alloc : !qco.qubit
+        %q1 = qassert.eq %q0 == [0x1, 0] : !qco.qubit
+        qco.sink %q1 : !qco.qubit
+        return
+      }
+    }
+  )mlir",
+                 "expected a decimal number");
 }
 
 TEST_F(QAssertIRTest, RejectsEqZeroQubits) {
@@ -262,8 +431,7 @@ TEST_F(QAssertIRTest, RejectsEqRankTwoReference) {
     module {
       func.func @main() {
         %q0 = qco.alloc : !qco.qubit
-        %q1 = qassert.eq dense<[[(1.0, 0.0)], [(0.0, 0.0)]]>
-            : tensor<2x1xcomplex<f64>> %q0 : !qco.qubit
+        %q1 = "qassert.eq"(%q0) <{reference = dense<[[(1.0, 0.0)], [(0.0, 0.0)]]> : tensor<2x1xcomplex<f64>>}> : (!qco.qubit) -> !qco.qubit
         qco.sink %q1 : !qco.qubit
         return
       }
@@ -277,7 +445,7 @@ TEST_F(QAssertIRTest, RejectsEqNonComplexReference) {
     module {
       func.func @main() {
         %q0 = qco.alloc : !qco.qubit
-        %q1 = qassert.eq dense<[1.0, 0.0]> : tensor<2xf64> %q0 : !qco.qubit
+        %q1 = "qassert.eq"(%q0) <{reference = dense<[1.0, 0.0]> : tensor<2xf64>}> : (!qco.qubit) -> !qco.qubit
         qco.sink %q1 : !qco.qubit
         return
       }
@@ -291,8 +459,7 @@ TEST_F(QAssertIRTest, RejectsEqWrongReferenceLength) {
     module {
       func.func @main() {
         %q0 = qco.alloc : !qco.qubit
-        %q1 = qassert.eq dense<[(1.0, 0.0), (0.0, 0.0), (0.0, 0.0), (0.0, 0.0)]>
-            : tensor<4xcomplex<f64>> %q0 : !qco.qubit
+        %q1 = qassert.eq %q0 == [1, 0, 0, 0] : !qco.qubit
         qco.sink %q1 : !qco.qubit
         return
       }
@@ -307,8 +474,7 @@ TEST_F(QAssertIRTest, RejectsEqNaNReference) {
     module {
       func.func @main() {
         %q0 = qco.alloc : !qco.qubit
-        %q1 = qassert.eq dense<[(0x7FF8000000000000, 0.0), (0.0, 0.0)]>
-            : tensor<2xcomplex<f64>> %q0 : !qco.qubit
+        %q1 = "qassert.eq"(%q0) <{reference = dense<[(0x7FF8000000000000, 0.0), (0.0, 0.0)]> : tensor<2xcomplex<f64>>}> : (!qco.qubit) -> !qco.qubit
         qco.sink %q1 : !qco.qubit
         return
       }
@@ -322,8 +488,7 @@ TEST_F(QAssertIRTest, RejectsEqUnnormalizedReference) {
     module {
       func.func @main() {
         %q0 = qco.alloc : !qco.qubit
-        %q1 = qassert.eq dense<[(1.0, 0.0), (1.0, 0.0)]>
-            : tensor<2xcomplex<f64>> %q0 : !qco.qubit
+        %q1 = qassert.eq %q0 == [1, 1] : !qco.qubit
         qco.sink %q1 : !qco.qubit
         return
       }
@@ -337,9 +502,7 @@ TEST_F(QAssertIRTest, RejectsEqThresholdAboveOne) {
     module {
       func.func @main() {
         %q0 = qco.alloc : !qco.qubit
-        %q1 = qassert.eq dense<[(1.0, 0.0), (0.0, 0.0)]>
-            : tensor<2xcomplex<f64>> %q0 {similarity_threshold = 1.5 : f64}
-            : !qco.qubit
+        %q1 = qassert.eq %q0 == [1, 0] threshold 1.5 : !qco.qubit
         qco.sink %q1 : !qco.qubit
         return
       }
@@ -353,9 +516,8 @@ TEST_F(QAssertIRTest, RejectsEqNaNThreshold) {
     module {
       func.func @main() {
         %q0 = qco.alloc : !qco.qubit
-        %q1 = qassert.eq dense<[(1.0, 0.0), (0.0, 0.0)]>
-            : tensor<2xcomplex<f64>> %q0
-            {similarity_threshold = 0x7FF8000000000000 : f64} : !qco.qubit
+        %q1 = qassert.eq %q0 == [1, 0] threshold 0x7FF8000000000000
+            : !qco.qubit
         qco.sink %q1 : !qco.qubit
         return
       }
@@ -573,8 +735,7 @@ TEST_F(QAssertIRTest, AssertionsArePure) {
         %b0 = qco.alloc : !qco.qubit
         %a1 = qassert.sup %a0 : !qco.qubit
         %a2, %b1 = qassert.ent %a1, %b0 : !qco.qubit, !qco.qubit
-        %b2 = qassert.eq dense<[(1.0, 0.0), (0.0, 0.0)]>
-            : tensor<2xcomplex<f64>> %b1 : !qco.qubit
+        %b2 = qassert.eq %b1 == [1, 0] : !qco.qubit
         %b3 = qassert.span ["0"] %b2 : !qco.qubit
         qco.sink %a2 : !qco.qubit
         qco.sink %b3 : !qco.qubit
