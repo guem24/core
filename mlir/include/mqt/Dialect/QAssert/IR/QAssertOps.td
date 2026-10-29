@@ -38,16 +38,16 @@ class QAssertQubitsOp<string mnemonic, list<Trait> traits = []>
 def SupOp : QAssertQubitsOp<"sup"> {
   let summary = "Assert that the given qubits are in superposition";
   let description = [{
-    Asserts that measuring all `qubits_in` together in the computational
-    basis can give more than one outcome. For several qubits, this holds
-    if and only if at least one qubit on its own has no fixed outcome.
-    To assert that each qubit is in superposition individually, use one
-    `qassert.sup` per qubit.
+    Asserts that `qubits_in` are in superposition: measuring them in the
+    computational basis can give more than one result. This is the case if
+    at least one of the qubits has no fixed result. To check each
+    qubit individually, use one `qassert.sup` per qubit.
 
     Example:
     ```mlir
-    %q1 = qco.h %q0 : !qco.qubit
-    %q2 = qassert.sup %q1 : !qco.qubit
+    // Only a is in superposition, but the assertion still holds.
+    %a1 = qco.h %a0 : !qco.qubit
+    %a2, %b1 = qassert.sup %a1, %b0 : !qco.qubit, !qco.qubit
     ```
     }];
 }
@@ -55,15 +55,21 @@ def SupOp : QAssertQubitsOp<"sup"> {
 def EntOp : QAssertQubitsOp<"ent"> {
   let summary = "Assert that the given qubits are entangled";
   let description = [{
-    Asserts that `qubits_in` are entangled with each other. This means that
-    you cannot split them into two groups that each have a state of their
-    own. The entanglement may also include qubits that are not listed.
+    Asserts that `qubits_in` are entangled with each other as one group. The
+    entanglement can also include qubits that are not listed.
 
-    For example, after preparing a GHZ state on `a, b, c`, asserting `a, b`
-    holds, because `a` and `b` are entangled through the GHZ state. If `c` was
-    never entangled with `a` and `b`, asserting `a, b, c` fails. The state
-    `|+>|+>` also fails: both qubits are in superposition, but each one has a
-    state of its own.
+    No matter how you divide the listed qubits into two parts, the parts are
+    always connected by entanglement, directly or through other qubits. For
+    example:
+    - After a GHZ state on `a, b, c`, asserting `a, b` shows that `a` and `b`
+      are connected through the GHZ state.
+    - If `a, b` are a Bell pair and `c` was never entangled with them,
+      asserting `a, b, c` fails.
+    - If `a, b` and `c, d` are two separate Bell pairs, asserting
+      `a, b, c, d` fails, although every qubit is entangled, since the two
+      pairs are not connected.
+    - `|+>|+>` fails: both qubits are in superposition, but they are not
+      entangled.
 
     Example:
     ```mlir
@@ -80,25 +86,21 @@ def EntOp : QAssertQubitsOp<"ent"> {
 def EqOp : QAssertQubitsOp<"eq"> {
   let summary = "Assert that the given qubits are in a reference state";
   let description = [{
-    Asserts that `qubits_in`, taken together, are in the state given by
-    `reference`. The reference is scaled to length 1, and the assertion holds
-    if `abs(<current|reference>)` is at least `similarity_threshold`, which
-    lies in `[0, 1]` and defaults to 1. The global phase does not matter.
+    Asserts that `qubits_in` are in the state given by `reference`. The
+    reference is scaled to length 1, and the assertion holds if the
+    similarity `abs(<current|reference>)` is at least the
+    `similarity_threshold`. The threshold lies in `[0, 1]` and its default
+    value is 1, which means the two states must be equal. The global phase
+    does not matter.
 
     `reference` lists `2^n` amplitudes, where `n` is the number of qubits.
     Each amplitude is a real number or a `(real, imaginary)` pair. The
-    reference is stored as a rank-one tensor of `complex<f64>`. Operand 0 labels the
-    most-significant basis bit, as in `qco.unitary`. For example, `a = |1>`
-    and `b = |0>` give `[0, 0, 1, 0]` for the operands `a, b`.
+    reference is stored as a rank-one tensor of `complex<f64>` and is always
+    printed as a list.
 
-    Instead of a list, `reference` can also be written in ket notation, such
-    as `0.707|00> + 0.707|11>`. The bitstrings use the same bit order. A
-    missing coefficient is 1, bitstrings that do not appear have amplitude 0,
-    and a repeated bitstring adds up. Ket notation supports at most 20 qubits.
-    The reference is always printed as a list.
-
-    The squared amplitudes must sum to 1 within `1e-2`. This catches typos in
-    the amplitudes but accepts rounded values.
+    Instead of a list, `reference` can also be written in ket notation. The
+    first qubit is the most-significant bit, so `|10>` means the first qubit
+    is `|1>` and the second is `|0>`.
 
     Example:
     ```mlir
@@ -125,21 +127,20 @@ def EqOp : QAssertQubitsOp<"eq"> {
 }
 
 def SpanOp : QAssertQubitsOp<"span"> {
-  let summary = "Assert that the given qubits can only be measured in the "
-                "given basis states";
+  let summary = "Assert that the given qubits can only be measured as one of "
+                "the given bitstrings";
   let description = [{
-    Asserts that measuring `qubits_in` in the computational basis gives one
-    of the bitstrings in `states` with probability 1. Equivalently, every
-    basis state with a nonzero amplitude is listed. The amplitudes and their
-    phases do not matter, and the qubits may be entangled with other qubits.
+    Asserts that measuring `qubits_in` can only give one of the provided
+    bitstrings. Only the possible results count, not their probabilities.
+    Qubits may also be entangled with other qubits.
 
-    Character `i` of each bitstring belongs to operand `i`, so the first
-    character is the most-significant bit, as in `qassert.eq`. For example,
-    `a = |1>` and `b = |0>` give `["10"]` for the operands `a, b`. A single
-    bitstring asserts a basis state, up to a global phase.
+    For example, the Bell state `(|00> + |11>) / sqrt(2)` can only be measured
+    as `00` or `11`. So `["00", "11"]` holds, but `["00"]` fails, because `11`
+    can also come out. A single bitstring such as `["10"]` asserts that the
+    qubits are in that basis state.
 
-    Each bitstring has one `0` or `1` per qubit, and no bitstring appears
-    twice.
+    Each bitstring has one character per qubit. The first character belongs
+    to the first qubit, which is the most-significant bit.
 
     Example:
     ```mlir
