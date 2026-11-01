@@ -13,6 +13,7 @@
 #include "mqt/Conversion/QCToQCO/QCToQCO.h"
 #include "mqt/Dialect/CBit/IR/CBitDialect.h"
 #include "mqt/Dialect/MQT/IR/MQTDialect.h"
+#include "mqt/Dialect/QAssert/IR/QAssertDialect.h"
 #include "mqt/Dialect/QC/IR/QCDialect.h"
 #include "mqt/Dialect/QC/IR/QCInterfaces.h"
 #include "mqt/Dialect/QC/IR/QCOps.h"
@@ -74,12 +75,13 @@ static void ensureInlinerExtensions(MLIRContext* context) {
 
 std::shared_ptr<MLIRContext> createCompilerContext() {
   DialectRegistry registry;
-  registry.insert<cbit::CBitDialect, mqt::MQTDialect, qc::QCDialect,
-                  qco::QCODialect, qtensor::QTensorDialect, arith::ArithDialect,
-                  cf::ControlFlowDialect, func::FuncDialect, math::MathDialect,
-                  scf::SCFDialect, LLVM::LLVMDialect, memref::MemRefDialect,
-                  tensor::TensorDialect, jeff::JeffDialect,
-                  bufferization::BufferizationDialect>();
+  registry
+      .insert<cbit::CBitDialect, mqt::MQTDialect, qassert::QAssertDialect,
+              qc::QCDialect, qco::QCODialect, qtensor::QTensorDialect,
+              arith::ArithDialect, cf::ControlFlowDialect, func::FuncDialect,
+              math::MathDialect, scf::SCFDialect, LLVM::LLVMDialect,
+              memref::MemRefDialect, tensor::TensorDialect, jeff::JeffDialect,
+              bufferization::BufferizationDialect>();
   registerBuiltinDialectTranslation(registry);
   registerLLVMDialectTranslation(registry);
 

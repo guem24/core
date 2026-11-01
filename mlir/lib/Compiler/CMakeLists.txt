@@ -89,6 +89,7 @@ add_mlir_library(
   MLIRMQTDialect
   MLIRParser
   MLIRPass
+  MLIRQAssertDialect
   MLIRQCDialect
   MLIRQCOpenQASMTranslation
   MLIRQCToQCO
