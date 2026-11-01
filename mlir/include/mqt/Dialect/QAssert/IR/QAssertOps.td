@@ -40,8 +40,7 @@ def SupOp : QAssertQubitsOp<"sup"> {
   let description = [{
     Asserts that `qubits_in` are in superposition: measuring them in the
     computational basis can give more than one result. This is the case if
-    at least one of the qubits has no fixed result. To check each
-    qubit individually, use one `qassert.sup` per qubit.
+    at least one of the qubits has no fixed result.
 
     Example:
     ```mlir
@@ -58,7 +57,7 @@ def EntOp : QAssertQubitsOp<"ent"> {
     Asserts that `qubits_in` are entangled with each other as one group. The
     entanglement can also include qubits that are not listed.
 
-    No matter how you divide the listed qubits into two parts, the parts are
+    However the listed qubits are divided into two parts, the parts are
     always connected by entanglement, directly or through other qubits. For
     example:
     - After a GHZ state on `a, b, c`, asserting `a, b` shows that `a` and `b`
@@ -95,8 +94,7 @@ def EqOp : QAssertQubitsOp<"eq"> {
 
     `reference` lists `2^n` amplitudes, where `n` is the number of qubits.
     Each amplitude is a real number or a `(real, imaginary)` pair. The
-    reference is stored as a rank-one tensor of `complex<f64>` and is always
-    printed as a list.
+    reference is stored as a rank-one tensor of `complex<f64>`.
 
     Instead of a list, `reference` can also be written in ket notation. The
     first qubit is the most-significant bit, so `|10>` means the first qubit
@@ -127,12 +125,14 @@ def EqOp : QAssertQubitsOp<"eq"> {
 }
 
 def SpanOp : QAssertQubitsOp<"span"> {
-  let summary = "Assert that the given qubits can only be measured as one of "
-                "the given bitstrings";
+  let summary = "Assert that the state represented by the qubits is contained "
+                "in the span of the given basis states";
   let description = [{
-    Asserts that measuring `qubits_in` can only give one of the provided
-    bitstrings. Only the possible results count, not their probabilities.
-    Qubits may also be entangled with other qubits.
+    Asserts that the state represented by `qubits_in` is contained in the
+    span of the given basis states. This means that measuring `qubits_in`
+    can only give one of these bitstrings. Only the possible results count,
+    not their probabilities. The qubits may also be entangled with other
+    qubits.
 
     For example, the Bell state `(|00> + |11>) / sqrt(2)` can only be measured
     as `00` or `11`. So `["00", "11"]` holds, but `["00"]` fails, because `11`

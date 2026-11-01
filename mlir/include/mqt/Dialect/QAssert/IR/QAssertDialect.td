@@ -15,19 +15,15 @@ def QAssertDialect : Dialect {
   let name = "qassert";
   let summary = "Quantum state assertions";
   let description = [{
-        The QAssert dialect provides assertions for quantum programs. The name
-        "QAssert" stands for "Quantum Assertions."
-
-        An assertion states what the quantum state should look like at a
-        certain point in the program. If it fails, the program does not do
-        what you expected at that point. There are four assertions:
+        The QAssert dialect provides assertions for quantum programs. An
+        assertion checks the expected quantum state at a point in the program
+        and fails if the actual state differs. There are four assertions:
         superposition (`sup`), entanglement (`ent`), equality to a reference
-        state (`eq`), and which measurement results are possible (`span`).
+        state (`eq`), and lying in a span of basis states (`span`).
 
-        Assertions act on QCO qubits. An assertion does not change the state.
-        It returns its qubits in the same order, so it stays at its point in
-        the program. Assertions are not gates, so they cannot be used inside
-        `qco.ctrl`, `qco.inv`, or `qco.pow` bodies.
+        Assertions act on QCO qubits. They do not change the state and return
+        their qubits in the same order. Since they are not gates, they cannot
+        be used inside `qco.ctrl`, `qco.inv`, or `qco.pow` bodies.
     }];
   let cppNamespace = "::mlir::qassert";
   let dependentDialects = ["::mlir::qco::QCODialect"];
