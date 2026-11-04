@@ -92,13 +92,18 @@ def EqOp : QAssertQubitsOp<"eq"> {
     value is 1, which means the two states must be equal. The global phase
     does not matter.
 
+    If the qubits are entangled with qubits outside the list, they have no
+    state vector of their own, so the assertion cannot be evaluated. All
+    entangled qubits must then be listed as well.
+
     `reference` lists `2^n` amplitudes, where `n` is the number of qubits.
     Each amplitude is a real number or a `(real, imaginary)` pair. The
     reference is stored as a rank-one tensor of `complex<f64>`.
 
-    Instead of a list, `reference` can also be written in ket notation. The
-    first qubit is the most-significant bit, so `|10>` means the first qubit
-    is `|1>` and the second is `|0>`.
+    Instead of a list, `reference` can also be written in ket notation. Each
+    coefficient is written like an amplitude in the list. The first qubit is
+    the most-significant bit, so `|10>` means the first qubit is `|1>` and the
+    second is `|0>`.
 
     Example:
     ```mlir
@@ -112,6 +117,10 @@ def EqOp : QAssertQubitsOp<"eq"> {
 
     // |+i> = (|0> + i|1>) / sqrt(2), with a threshold
     %q1 = qassert.eq %q0 == [0.707, (0, 0.707)] threshold 0.999 : !qco.qubit
+
+    // The same state in ket notation
+    %q2 = qassert.eq %q1 == 0.707|0> + (0, 0.707)|1> threshold 0.999
+        : !qco.qubit
     ```
     }];
 
