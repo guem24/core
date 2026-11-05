@@ -26,6 +26,7 @@
 #include "llvm/ADT/DenseSet.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/SmallVector.h"
+#include "llvm/ADT/StringExtras.h"
 #include "llvm/ADT/StringRef.h"
 
 #include <cmath>
@@ -57,14 +58,17 @@ void QAssertDialect::initialize() {
 //===----------------------------------------------------------------------===//
 
 // Parses a real number. Decimal integers such as `0` are accepted as well,
-// because `parseFloat` rejects them. Hexadecimal literals are rejected: the
-// integer parser would read them as integers, but MLIR uses them for the bit
-// pattern of a float.
+// because `parseFloat` rejects them. The minus sign is parsed here, because
+// `parseOptionalInteger` would consume it and then reject a float such as
+// `-0.5`. The number must start with a digit: `parseOptionalInteger` also
+// accepts `true`, `false`, and a second minus sign. Hexadecimal literals are
+// rejected: the integer parser would read them as integers, but MLIR uses them
+// for the bit pattern of a float.
 static ParseResult parseReal(OpAsmParser& parser, double& value) {
   const bool negative = succeeded(parser.parseOptionalMinus());
   const auto loc = parser.getCurrentLocation();
   const char* text = loc.getPointer();
-  if (text[0] == '0' && text[1] == 'x') {
+  if (!llvm::isDigit(text[0]) || (text[0] == '0' && text[1] == 'x')) {
     return parser.emitError(loc, "expected a decimal number");
   }
   int64_t integer = 0;

@@ -414,6 +414,34 @@ TEST_F(QAssertIRTest, RejectsEqHexadecimalAmplitude) {
                  "expected a decimal number");
 }
 
+TEST_F(QAssertIRTest, RejectsEqKeywordAmplitude) {
+  expectRejected(R"mlir(
+    module {
+      func.func @main() {
+        %q0 = qco.alloc : !qco.qubit
+        %q1 = qassert.eq %q0 == [true, false] : !qco.qubit
+        qco.sink %q1 : !qco.qubit
+        return
+      }
+    }
+  )mlir",
+                 "expected a decimal number");
+}
+
+TEST_F(QAssertIRTest, RejectsEqDoubleMinusAmplitude) {
+  expectRejected(R"mlir(
+    module {
+      func.func @main() {
+        %q0 = qco.alloc : !qco.qubit
+        %q1 = qassert.eq %q0 == [--1, 0] : !qco.qubit
+        qco.sink %q1 : !qco.qubit
+        return
+      }
+    }
+  )mlir",
+                 "expected a decimal number");
+}
+
 TEST_F(QAssertIRTest, RejectsEqZeroQubits) {
   expectRejected(R"mlir(
     module {
