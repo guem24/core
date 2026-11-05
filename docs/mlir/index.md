@@ -19,6 +19,8 @@ We define multiple dialects, each with its dedicated purpose:
   collections of qubits such as registers.
 - The {doc}`CBit dialect <CBit>` represents initialized classical-bit registers
   shared by QC and QCO.
+- The {doc}`QAssert dialect <QAssert>` asserts properties of QCO quantum states
+  at specific points in a program.
 
 These dialects define various canonicalization patterns and transformation
 passes that enable the compilation of quantum programs to native quantum
@@ -116,6 +118,7 @@ QC
 QCO
 QTensor
 CBit
+QAssert
 Transforms
 Conversions
 ```

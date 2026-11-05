@@ -8,6 +8,7 @@
 
 add_subdirectory(CBit)
 add_subdirectory(MQT)
+add_subdirectory(QAssert)
 add_subdirectory(QCO)
 add_subdirectory(QIR)
 add_subdirectory(QC)
