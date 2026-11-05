@@ -388,6 +388,50 @@ TEST_F(QAssertIRTest, ParsesEqKetDefaultsAndRepeats) {
   EXPECT_EQ(amplitudes[1], std::complex<double>(0.0, 0.0));
 }
 
+TEST_F(QAssertIRTest, ParsesEqKetZeroCoefficients) {
+  // A zero coefficient, also -0.0, is the same as a missing term.
+  auto moduleOp = parse(R"mlir(
+    module {
+      func.func @main() {
+        %a0 = qco.alloc : !qco.qubit
+        %b0 = qco.alloc : !qco.qubit
+        %a1, %b1 = qassert.eq %a0, %b0 == -0.0|00> + 0.0|01> - 0.0|10> + 1|11>
+            : !qco.qubit, !qco.qubit
+        qco.sink %a1 : !qco.qubit
+        qco.sink %b1 : !qco.qubit
+        return
+      }
+    }
+  )mlir");
+  ASSERT_TRUE(moduleOp);
+
+  auto eq = findSingle<qassert::EqOp>(*moduleOp);
+  ASSERT_TRUE(eq);
+  const auto amplitudes =
+      llvm::to_vector(cast<DenseElementsAttr>(eq.getReference())
+                          .getValues<std::complex<double>>());
+  ASSERT_EQ(amplitudes.size(), 4);
+  EXPECT_EQ(amplitudes[0], std::complex<double>(0.0, 0.0));
+  EXPECT_EQ(amplitudes[1], std::complex<double>(0.0, 0.0));
+  EXPECT_EQ(amplitudes[2], std::complex<double>(0.0, 0.0));
+  EXPECT_EQ(amplitudes[3], std::complex<double>(1.0, 0.0));
+}
+
+TEST_F(QAssertIRTest, RejectsEqKetAllZeroCoefficients) {
+  // A zero vector cannot be scaled to length 1.
+  expectRejected(R"mlir(
+    module {
+      func.func @main() {
+        %q0 = qco.alloc : !qco.qubit
+        %q1 = qassert.eq %q0 == 0.0|0> - 0.0|1> : !qco.qubit
+        qco.sink %q1 : !qco.qubit
+        return
+      }
+    }
+  )mlir",
+                 "squared reference amplitudes must sum to 1");
+}
+
 TEST_F(QAssertIRTest, RejectsEqKetDifferentLengths) {
   expectRejected(R"mlir(
     module {
