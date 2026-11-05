@@ -29,6 +29,7 @@
 #include "mlir/Support/LLVM.h"
 
 #include "llvm/ADT/STLExtras.h"
+#include "llvm/ADT/Twine.h"
 #include "llvm/Support/raw_ostream.h"
 
 #include <complex>
@@ -79,6 +80,89 @@ protected:
   }
 };
 
+//===----------------------------------------------------------------------===//
+// Rules shared by all assertions
+//===----------------------------------------------------------------------===//
+
+/// An invalid assertion and the diagnostic the verifier must report.
+struct RejectionCase {
+  const char* name;
+  /// The invalid operation. It may use the qubits `%a` and `%b`.
+  const char* op;
+  const char* message;
+};
+
+class QAssertRejectionTest
+    : public QAssertIRTest,
+      public ::testing::WithParamInterface<RejectionCase> {
+public:
+  /// Names each test after its case, such as `Sup`.
+  [[nodiscard]] static std::string
+  caseName(const ::testing::TestParamInfo<RejectionCase>& info) {
+    return info.param.name;
+  }
+};
+
+TEST_P(QAssertRejectionTest, RejectsInvalidAssertion) {
+  const auto source = (R"mlir(
+    module {
+      func.func @main() {
+        %a = qco.alloc : !qco.qubit
+        %b = qco.alloc : !qco.qubit
+        )mlir" + Twine(GetParam().op) +
+                       R"mlir(
+        return
+      }
+    }
+  )mlir")
+                          .str();
+  expectRejected(source, GetParam().message);
+}
+
+constexpr const char* TOO_FEW_QUBITS = "number of qubits must be at least 1";
+constexpr const char* COUNT_MISMATCH = "input and output qubit types match";
+
+INSTANTIATE_TEST_SUITE_P(
+    TooFewQubits, QAssertRejectionTest,
+    ::testing::Values(
+        RejectionCase{"Sup", R"mlir("qassert.sup"() : () -> ())mlir",
+                      TOO_FEW_QUBITS},
+        RejectionCase{"Ent", R"mlir(%r = qassert.ent %a : !qco.qubit)mlir",
+                      "number of qubits must be at least 2"},
+        RejectionCase{
+            "Eq",
+            R"mlir("qassert.eq"() <{reference = dense<[(1.0, 0.0)]> : tensor<1xcomplex<f64>>}> : () -> ())mlir",
+            TOO_FEW_QUBITS},
+        RejectionCase{
+            "Span", R"mlir("qassert.span"() <{states = ["0"]}> : () -> ())mlir",
+            TOO_FEW_QUBITS}),
+    QAssertRejectionTest::caseName);
+
+INSTANTIATE_TEST_SUITE_P(
+    ResultCountMismatch, QAssertRejectionTest,
+    ::testing::Values(
+        RejectionCase{
+            "Sup",
+            R"mlir(%r = "qassert.sup"(%a, %b) : (!qco.qubit, !qco.qubit) -> !qco.qubit)mlir",
+            COUNT_MISMATCH},
+        RejectionCase{
+            "Ent",
+            R"mlir(%r = "qassert.ent"(%a, %b) : (!qco.qubit, !qco.qubit) -> !qco.qubit)mlir",
+            COUNT_MISMATCH},
+        RejectionCase{
+            "Eq",
+            R"mlir(%r = "qassert.eq"(%a, %b) <{reference = dense<[(1.0, 0.0), (0.0, 0.0), (0.0, 0.0), (0.0, 0.0)]> : tensor<4xcomplex<f64>>}> : (!qco.qubit, !qco.qubit) -> !qco.qubit)mlir",
+            COUNT_MISMATCH},
+        RejectionCase{
+            "Span",
+            R"mlir(%r = "qassert.span"(%a, %b) <{states = ["00"]}> : (!qco.qubit, !qco.qubit) -> !qco.qubit)mlir",
+            COUNT_MISMATCH}),
+    QAssertRejectionTest::caseName);
+
+//===----------------------------------------------------------------------===//
+// `qassert.sup`
+//===----------------------------------------------------------------------===//
+
 TEST_F(QAssertIRTest, ParsesSupSingleQubitAssertion) {
   auto moduleOp = parse(R"mlir(
     module {
@@ -125,32 +209,9 @@ TEST_F(QAssertIRTest, ParsesSupMultiQubitAssertion) {
   EXPECT_EQ(sup.getQubitsOut().size(), 2);
 }
 
-TEST_F(QAssertIRTest, RejectsSupZeroQubits) {
-  expectRejected(R"mlir(
-    module {
-      func.func @main() {
-        "qassert.sup"() : () -> ()
-        return
-      }
-    }
-  )mlir",
-                 "number of qubits must be at least 1");
-}
-
-TEST_F(QAssertIRTest, RejectsSupResultCountMismatch) {
-  expectRejected(R"mlir(
-    module {
-      func.func @main() {
-        %a = qco.alloc : !qco.qubit
-        %b = qco.alloc : !qco.qubit
-        %r = "qassert.sup"(%a, %b) : (!qco.qubit, !qco.qubit) -> !qco.qubit
-        qco.sink %r : !qco.qubit
-        return
-      }
-    }
-  )mlir",
-                 "input and output qubit types match");
-}
+//===----------------------------------------------------------------------===//
+// `qassert.ent`
+//===----------------------------------------------------------------------===//
 
 TEST_F(QAssertIRTest, ParsesEntAssertion) {
   auto moduleOp = parse(R"mlir(
@@ -175,34 +236,9 @@ TEST_F(QAssertIRTest, ParsesEntAssertion) {
   EXPECT_EQ(ent.getQubitsOut().size(), 3);
 }
 
-TEST_F(QAssertIRTest, RejectsEntOneQubit) {
-  expectRejected(R"mlir(
-    module {
-      func.func @main() {
-        %q = qco.alloc : !qco.qubit
-        %r = qassert.ent %q : !qco.qubit
-        qco.sink %r : !qco.qubit
-        return
-      }
-    }
-  )mlir",
-                 "number of qubits must be at least 2");
-}
-
-TEST_F(QAssertIRTest, RejectsEntResultCountMismatch) {
-  expectRejected(R"mlir(
-    module {
-      func.func @main() {
-        %a = qco.alloc : !qco.qubit
-        %b = qco.alloc : !qco.qubit
-        %r = "qassert.ent"(%a, %b) : (!qco.qubit, !qco.qubit) -> !qco.qubit
-        qco.sink %r : !qco.qubit
-        return
-      }
-    }
-  )mlir",
-                 "input and output qubit types match");
-}
+//===----------------------------------------------------------------------===//
+// `qassert.eq` syntax
+//===----------------------------------------------------------------------===//
 
 TEST_F(QAssertIRTest, ParsesEqAssertion) {
   auto moduleOp = parse(R"mlir(
@@ -442,17 +478,9 @@ TEST_F(QAssertIRTest, RejectsEqDoubleMinusAmplitude) {
                  "expected a decimal number");
 }
 
-TEST_F(QAssertIRTest, RejectsEqZeroQubits) {
-  expectRejected(R"mlir(
-    module {
-      func.func @main() {
-        "qassert.eq"() <{reference = dense<[(1.0, 0.0)]> : tensor<1xcomplex<f64>>}> : () -> ()
-        return
-      }
-    }
-  )mlir",
-                 "number of qubits must be at least 1");
-}
+//===----------------------------------------------------------------------===//
+// `qassert.eq` verifier
+//===----------------------------------------------------------------------===//
 
 TEST_F(QAssertIRTest, RejectsEqRankTwoReference) {
   expectRejected(R"mlir(
@@ -554,20 +582,9 @@ TEST_F(QAssertIRTest, RejectsEqNaNThreshold) {
                  "similarity threshold must be in [0, 1]");
 }
 
-TEST_F(QAssertIRTest, RejectsEqResultCountMismatch) {
-  expectRejected(R"mlir(
-    module {
-      func.func @main() {
-        %a = qco.alloc : !qco.qubit
-        %b = qco.alloc : !qco.qubit
-        %r = "qassert.eq"(%a, %b) <{reference = dense<[(1.0, 0.0), (0.0, 0.0), (0.0, 0.0), (0.0, 0.0)]> : tensor<4xcomplex<f64>>}> : (!qco.qubit, !qco.qubit) -> !qco.qubit
-        qco.sink %r : !qco.qubit
-        return
-      }
-    }
-  )mlir",
-                 "input and output qubit types match");
-}
+//===----------------------------------------------------------------------===//
+// `qassert.span`
+//===----------------------------------------------------------------------===//
 
 TEST_F(QAssertIRTest, ParsesSpanAssertion) {
   auto moduleOp = parse(R"mlir(
@@ -609,18 +626,6 @@ TEST_F(QAssertIRTest, ParsesSpanBasisState) {
   auto span = findSingle<qassert::SpanOp>(*moduleOp);
   ASSERT_TRUE(span);
   EXPECT_EQ(span.getStates().size(), 1);
-}
-
-TEST_F(QAssertIRTest, RejectsSpanZeroQubits) {
-  expectRejected(R"mlir(
-    module {
-      func.func @main() {
-        "qassert.span"() <{states = ["0"]}> : () -> ()
-        return
-      }
-    }
-  )mlir",
-                 "number of qubits must be at least 1");
 }
 
 TEST_F(QAssertIRTest, RejectsSpanEmptyStates) {
@@ -685,20 +690,9 @@ TEST_F(QAssertIRTest, RejectsSpanDuplicateState) {
                  "state '00' appears more than once");
 }
 
-TEST_F(QAssertIRTest, RejectsSpanResultCountMismatch) {
-  expectRejected(R"mlir(
-    module {
-      func.func @main() {
-        %a = qco.alloc : !qco.qubit
-        %b = qco.alloc : !qco.qubit
-        %r = "qassert.span"(%a, %b) <{states = ["00"]}> : (!qco.qubit, !qco.qubit) -> !qco.qubit
-        qco.sink %r : !qco.qubit
-        return
-      }
-    }
-  )mlir",
-                 "input and output qubit types match");
-}
+//===----------------------------------------------------------------------===//
+// Use in QCO
+//===----------------------------------------------------------------------===//
 
 // QCO rejects assertions in all modifier bodies with one shared check, so one
 // assertion per modifier is enough.

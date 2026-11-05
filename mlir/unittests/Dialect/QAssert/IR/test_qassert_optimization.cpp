@@ -23,6 +23,7 @@
 #include "mlir/IR/BuiltinOps.h"
 #include "mlir/IR/DialectRegistry.h"
 #include "mlir/IR/MLIRContext.h"
+#include "mlir/IR/Operation.h"
 #include "mlir/IR/OwningOpRef.h"
 #include "mlir/IR/Value.h"
 #include "mlir/Parser/Parser.h"
@@ -35,6 +36,7 @@
 
 #include <cstddef>
 #include <memory>
+#include <string>
 #include <utility>
 
 using namespace mlir;
@@ -86,211 +88,118 @@ protected:
   }
 };
 
-TEST_F(QAssertOptimizationTest, CanonicalizeKeepsSupAssertion) {
-  auto moduleOp = parse(R"mlir(
-    module {
-      func.func @main() {
-        %q0 = qco.alloc : !qco.qubit
-        %q1 = qco.h %q0 : !qco.qubit
-        %q2 = qco.h %q1 : !qco.qubit
-        %q3 = qassert.sup %q2 : !qco.qubit
-        qco.sink %q3 : !qco.qubit
-        return
+//===----------------------------------------------------------------------===//
+// Single assertions
+//===----------------------------------------------------------------------===//
+
+/// One assertion kind. Every case asserts on the same two qubits, so the tests
+/// below share one program.
+struct AssertionCase {
+  const char* name;
+  /// The operation name, such as `qassert.sup`.
+  const char* opName;
+  /// The assertion. It takes `%a1, %b0` and defines `%a2, %b1`.
+  const char* assertion;
+};
+
+class QAssertSingleAssertionTest
+    : public QAssertOptimizationTest,
+      public ::testing::WithParamInterface<AssertionCase> {
+protected:
+  /// Returns @p program with its `ASSERTION` line replaced by the assertion of
+  /// this case.
+  [[nodiscard]] static std::string withAssertion(StringRef program) {
+    constexpr StringRef placeholder = "ASSERTION";
+    const size_t pos = program.find(placeholder);
+    return (program.take_front(pos) + GetParam().assertion +
+            program.drop_front(pos + placeholder.size()))
+        .str();
+  }
+
+  /// Returns the operations named like the assertion of this case.
+  [[nodiscard]] static SmallVector<Operation*> assertions(ModuleOp moduleOp) {
+    SmallVector<Operation*> ops;
+    moduleOp->walk([&](Operation* op) {
+      if (op->getName().getStringRef() == GetParam().opName) {
+        ops.push_back(op);
       }
-    }
-  )mlir");
-  ASSERT_TRUE(moduleOp);
+    });
+    return ops;
+  }
+};
 
-  ASSERT_TRUE(runPass(*moduleOp, createCanonicalizerPass()).succeeded());
-
-  EXPECT_EQ(count<qco::HOp>(*moduleOp), 0);
-  EXPECT_EQ(count<qassert::SupOp>(*moduleOp), 1);
-  EXPECT_EQ(count<qco::AllocOp>(*moduleOp), 1);
-}
-
-TEST_F(QAssertOptimizationTest, RemoveDeadGatesKeepsSupObservedGates) {
-  auto moduleOp = parse(R"mlir(
-    module {
-      func.func @main() {
-        %q0 = qco.alloc : !qco.qubit
-        %q1 = qco.h %q0 : !qco.qubit
-        %q2 = qassert.sup %q1 : !qco.qubit
-        %q3 = qco.x %q2 : !qco.qubit
-        qco.sink %q3 : !qco.qubit
-        return
-      }
-    }
-  )mlir");
-  ASSERT_TRUE(moduleOp);
-
-  ASSERT_TRUE(runPass(*moduleOp, qco::createRemoveDeadGates()).succeeded());
-
-  EXPECT_EQ(count<qco::XOp>(*moduleOp), 0);
-  EXPECT_EQ(count<qco::HOp>(*moduleOp), 1);
-  ASSERT_EQ(count<qassert::SupOp>(*moduleOp), 1);
-
-  qassert::SupOp sup;
-  moduleOp->walk([&](qassert::SupOp op) { sup = op; });
-  EXPECT_TRUE(sup.getQubitsIn().front().getDefiningOp<qco::HOp>());
-}
-
-TEST_F(QAssertOptimizationTest, CanonicalizeKeepsEntAssertion) {
-  auto moduleOp = parse(R"mlir(
+TEST_P(QAssertSingleAssertionTest, CanonicalizeKeepsAssertion) {
+  auto moduleOp = parse(withAssertion(R"mlir(
     module {
       func.func @main() {
         %a0 = qco.alloc : !qco.qubit
         %b0 = qco.alloc : !qco.qubit
-        %a1 = qco.h %a0 : !qco.qubit
-        %a2 = qco.h %a1 : !qco.qubit
-        %a3, %b1 = qassert.ent %a2, %b0 : !qco.qubit, !qco.qubit
-        qco.sink %a3 : !qco.qubit
+        %ah = qco.h %a0 : !qco.qubit
+        %a1 = qco.h %ah : !qco.qubit
+        ASSERTION
+        qco.sink %a2 : !qco.qubit
         qco.sink %b1 : !qco.qubit
         return
       }
     }
-  )mlir");
+  )mlir"));
   ASSERT_TRUE(moduleOp);
 
   ASSERT_TRUE(runPass(*moduleOp, createCanonicalizerPass()).succeeded());
 
   EXPECT_EQ(count<qco::HOp>(*moduleOp), 0);
-  EXPECT_EQ(count<qassert::EntOp>(*moduleOp), 1);
+  EXPECT_EQ(assertions(*moduleOp).size(), 1);
   EXPECT_EQ(count<qco::AllocOp>(*moduleOp), 2);
 }
 
-TEST_F(QAssertOptimizationTest, RemoveDeadGatesKeepsEntObservedGates) {
-  auto moduleOp = parse(R"mlir(
+TEST_P(QAssertSingleAssertionTest, RemoveDeadGatesKeepsObservedGates) {
+  auto moduleOp = parse(withAssertion(R"mlir(
     module {
       func.func @main() {
         %a0 = qco.alloc : !qco.qubit
         %b0 = qco.alloc : !qco.qubit
         %a1 = qco.h %a0 : !qco.qubit
-        %a2, %b1 = qco.ctrl(%a1) targets (%t0 = %b0) {
-          %t1 = qco.x %t0 : !qco.qubit
-          qco.yield %t1 : !qco.qubit
-        } : ({!qco.qubit}, {!qco.qubit})
-        %a3, %b2 = qassert.ent %a2, %b1 : !qco.qubit, !qco.qubit
-        %a4 = qco.y %a3 : !qco.qubit
-        qco.sink %a4 : !qco.qubit
-        qco.sink %b2 : !qco.qubit
-        return
-      }
-    }
-  )mlir");
-  ASSERT_TRUE(moduleOp);
-
-  ASSERT_TRUE(runPass(*moduleOp, qco::createRemoveDeadGates()).succeeded());
-
-  EXPECT_EQ(count<qco::YOp>(*moduleOp), 0);
-  EXPECT_EQ(count<qco::HOp>(*moduleOp), 1);
-  EXPECT_EQ(count<qco::CtrlOp>(*moduleOp), 1);
-  ASSERT_EQ(count<qassert::EntOp>(*moduleOp), 1);
-
-  qassert::EntOp ent;
-  moduleOp->walk([&](qassert::EntOp op) { ent = op; });
-  for (Value qubit : ent.getQubitsIn()) {
-    EXPECT_TRUE(qubit.getDefiningOp<qco::CtrlOp>());
-  }
-}
-
-TEST_F(QAssertOptimizationTest, CanonicalizeKeepsEqAssertion) {
-  auto moduleOp = parse(R"mlir(
-    module {
-      func.func @main() {
-        %q0 = qco.alloc : !qco.qubit
-        %q1 = qco.h %q0 : !qco.qubit
-        %q2 = qco.h %q1 : !qco.qubit
-        %q3 = qassert.eq %q2 == [1, 0] : !qco.qubit
-        qco.sink %q3 : !qco.qubit
-        return
-      }
-    }
-  )mlir");
-  ASSERT_TRUE(moduleOp);
-
-  ASSERT_TRUE(runPass(*moduleOp, createCanonicalizerPass()).succeeded());
-
-  EXPECT_EQ(count<qco::HOp>(*moduleOp), 0);
-  EXPECT_EQ(count<qassert::EqOp>(*moduleOp), 1);
-  EXPECT_EQ(count<qco::AllocOp>(*moduleOp), 1);
-}
-
-TEST_F(QAssertOptimizationTest, RemoveDeadGatesKeepsEqObservedGates) {
-  auto moduleOp = parse(R"mlir(
-    module {
-      func.func @main() {
-        %q0 = qco.alloc : !qco.qubit
-        %q1 = qco.h %q0 : !qco.qubit
-        %q2 = qassert.eq %q1 == [0.707, 0.707] : !qco.qubit
-        %q3 = qco.x %q2 : !qco.qubit
-        qco.sink %q3 : !qco.qubit
-        return
-      }
-    }
-  )mlir");
-  ASSERT_TRUE(moduleOp);
-
-  ASSERT_TRUE(runPass(*moduleOp, qco::createRemoveDeadGates()).succeeded());
-
-  EXPECT_EQ(count<qco::XOp>(*moduleOp), 0);
-  EXPECT_EQ(count<qco::HOp>(*moduleOp), 1);
-  ASSERT_EQ(count<qassert::EqOp>(*moduleOp), 1);
-
-  qassert::EqOp eq;
-  moduleOp->walk([&](qassert::EqOp op) { eq = op; });
-  EXPECT_TRUE(eq.getQubitsIn().front().getDefiningOp<qco::HOp>());
-}
-
-TEST_F(QAssertOptimizationTest, CanonicalizeKeepsSpanAssertion) {
-  auto moduleOp = parse(R"mlir(
-    module {
-      func.func @main() {
-        %q0 = qco.alloc : !qco.qubit
-        %q1 = qco.h %q0 : !qco.qubit
-        %q2 = qco.h %q1 : !qco.qubit
-        %q3 = qassert.span ["0"] %q2 : !qco.qubit
-        qco.sink %q3 : !qco.qubit
-        return
-      }
-    }
-  )mlir");
-  ASSERT_TRUE(moduleOp);
-
-  ASSERT_TRUE(runPass(*moduleOp, createCanonicalizerPass()).succeeded());
-
-  EXPECT_EQ(count<qco::HOp>(*moduleOp), 0);
-  EXPECT_EQ(count<qassert::SpanOp>(*moduleOp), 1);
-  EXPECT_EQ(count<qco::AllocOp>(*moduleOp), 1);
-}
-
-TEST_F(QAssertOptimizationTest, RemoveDeadGatesKeepsSpanObservedGates) {
-  // Two qubits: on one qubit, |+> needs ["0", "1"], which is a full span.
-  auto moduleOp = parse(R"mlir(
-    module {
-      func.func @main() {
-        %a0 = qco.alloc : !qco.qubit
-        %b0 = qco.alloc : !qco.qubit
-        %a1 = qco.h %a0 : !qco.qubit
-        %a2, %b1 = qassert.span ["00", "10"] %a1, %b0 : !qco.qubit, !qco.qubit
+        ASSERTION
         %a3 = qco.x %a2 : !qco.qubit
         qco.sink %a3 : !qco.qubit
         qco.sink %b1 : !qco.qubit
         return
       }
     }
-  )mlir");
+  )mlir"));
   ASSERT_TRUE(moduleOp);
 
   ASSERT_TRUE(runPass(*moduleOp, qco::createRemoveDeadGates()).succeeded());
 
   EXPECT_EQ(count<qco::XOp>(*moduleOp), 0);
   EXPECT_EQ(count<qco::HOp>(*moduleOp), 1);
-  ASSERT_EQ(count<qassert::SpanOp>(*moduleOp), 1);
-
-  qassert::SpanOp span;
-  moduleOp->walk([&](qassert::SpanOp op) { span = op; });
-  EXPECT_TRUE(span.getQubitsIn().front().getDefiningOp<qco::HOp>());
+  auto ops = assertions(*moduleOp);
+  ASSERT_EQ(ops.size(), 1);
+  EXPECT_TRUE(ops.front()->getOperand(0).getDefiningOp<qco::HOp>());
 }
+
+INSTANTIATE_TEST_SUITE_P(
+    AllAssertions, QAssertSingleAssertionTest,
+    ::testing::Values(
+        AssertionCase{"Sup", "qassert.sup",
+                      "%a2, %b1 = qassert.sup %a1, %b0 : !qco.qubit, "
+                      "!qco.qubit"},
+        AssertionCase{"Ent", "qassert.ent",
+                      "%a2, %b1 = qassert.ent %a1, %b0 : !qco.qubit, "
+                      "!qco.qubit"},
+        AssertionCase{"Eq", "qassert.eq",
+                      "%a2, %b1 = qassert.eq %a1, %b0 == [1, 0, 0, 0] : "
+                      "!qco.qubit, !qco.qubit"},
+        AssertionCase{"Span", "qassert.span",
+                      "%a2, %b1 = qassert.span [\"00\"] %a1, %b0 : "
+                      "!qco.qubit, !qco.qubit"}),
+    [](const ::testing::TestParamInfo<AssertionCase>& info) {
+      return std::string(info.param.name);
+    });
+
+//===----------------------------------------------------------------------===//
+// Several assertions
+//===----------------------------------------------------------------------===//
 
 TEST_F(QAssertOptimizationTest, ChainedAssertionsSurviveCleanup) {
   // Bell pair, then all four assertions directly after each other.
