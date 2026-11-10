@@ -13,6 +13,8 @@
 #include "mqt/Dialect/MQT/IR/MQTDialect.h"
 #include "mqt/Dialect/MQT/Transforms/GlobalPhaseNormalization.h"
 #include "mqt/Dialect/MQT/Utils/Parameters.h"
+#include "mqt/Dialect/QAssert/IR/QAssertDialect.h"
+#include "mqt/Dialect/QAssert/IR/QAssertOps.h"
 #include "mqt/Dialect/QCO/Builder/QCOProgramBuilder.h"
 #include "mqt/Dialect/QCO/IR/QCODialect.h"
 #include "mqt/Dialect/QCO/IR/QCOOps.h"
@@ -249,8 +251,9 @@ protected:
   void SetUp() override {
     mlir::DialectRegistry registry;
     registry.insert<mlir::arith::ArithDialect, mlir::func::FuncDialect,
-                    mlir::mqt::MQTDialect, mlir::qco::QCODialect,
-                    mlir::qtensor::QTensorDialect, mlir::scf::SCFDialect>();
+                    mlir::mqt::MQTDialect, mlir::qassert::QAssertDialect,
+                    mlir::qco::QCODialect, mlir::qtensor::QTensorDialect,
+                    mlir::scf::SCFDialect>();
     context = std::make_unique<mlir::MLIRContext>();
     context->appendDialectRegistry(registry);
     context->loadAllAvailableDialects();
@@ -2231,6 +2234,39 @@ TEST_F(TargetSynthesisTest,
   ASSERT_TRUE(mlir::succeeded(runTargetPass(
       *module, target, mlir::qco::createVerifyTargetConformance())));
   ASSERT_TRUE(mlir::succeeded(mlir::verify(*module)));
+}
+
+TEST_F(TargetSynthesisTest, TargetNativeSynthesisFollowsSitesAcrossAssertion) {
+  // The target supports CX only from site 1 to site 0. Synthesis can choose
+  // the direction only if it knows the sites of the qubits after the
+  // assertion, which lists them in reverse order.
+  auto module = mlir::parseSourceString<ModuleOp>(R"mlir(
+    module {
+      func.func @main() {
+        %q0 = qco.static 0 : !qco.qubit
+        %q1 = qco.static 1 : !qco.qubit
+        %h = qco.h %q0 : !qco.qubit
+        %a1, %a0 = qassert.ent %q1, %h : !qco.qubit, !qco.qubit
+        %c, %t = qco.ctrl(%a0) targets(%arg = %a1) {
+          %x = qco.x %arg : !qco.qubit
+          qco.yield %x : !qco.qubit
+        } : ({!qco.qubit}, {!qco.qubit})
+        qco.sink %c : !qco.qubit
+        qco.sink %t : !qco.qubit
+        return
+      }
+    }
+  )mlir",
+                                                  context.get());
+  ASSERT_TRUE(module);
+  const auto target = makeOneWayUCxTarget();
+
+  ASSERT_TRUE(mlir::succeeded(runTargetPass(
+      *module, target, mlir::qco::createTargetNativeSynthesis())));
+  ASSERT_TRUE(mlir::succeeded(runTargetPass(
+      *module, target, mlir::qco::createVerifyTargetConformance())));
+  ASSERT_TRUE(mlir::succeeded(mlir::verify(*module)));
+  EXPECT_EQ(countOps<mlir::qassert::EntOp>(*module), 1U);
 }
 
 TEST_F(TargetSynthesisTest,

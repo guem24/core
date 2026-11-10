@@ -13,6 +13,8 @@
 #include "mqt/Dialect/CBit/IR/CBitDialect.h"
 #include "mqt/Dialect/CBit/IR/CBitOps.h"
 #include "mqt/Dialect/MQT/IR/MQTDialect.h"
+#include "mqt/Dialect/QAssert/IR/QAssertDialect.h"
+#include "mqt/Dialect/QAssert/IR/QAssertOps.h"
 #include "mqt/Dialect/QCO/Builder/QCOProgramBuilder.h"
 #include "mqt/Dialect/QCO/IR/QCODialect.h"
 #include "mqt/Dialect/QCO/IR/QCOInterfaces.h"
@@ -143,6 +145,15 @@ static bool isExecutable(Region& body,
     if (auto measOp = dyn_cast<MeasureOp>(op)) {
       const auto hw = m.at(measOp.getQubitIn());
       m.try_emplace(measOp.getQubitOut(), hw);
+      continue;
+    }
+
+    if (auto passThrough = dyn_cast<QubitPassThroughOpInterface>(op)) {
+      for (auto [pred, succ] : llvm::zip_equal(passThrough.getInputQubits(),
+                                               passThrough.getOutputQubits())) {
+        const auto hw = m.at(pred);
+        m.try_emplace(succ, hw);
+      }
       continue;
     }
 
@@ -338,9 +349,10 @@ class MappingPassFixture : public testing::Test {
 protected:
   void SetUp() override {
     DialectRegistry registry;
-    registry.insert<mqt::MQTDialect, QCODialect, qtensor::QTensorDialect,
-                    CBitDialect, scf::SCFDialect, arith::ArithDialect,
-                    func::FuncDialect, cf::ControlFlowDialect>();
+    registry.insert<mqt::MQTDialect, QCODialect, qassert::QAssertDialect,
+                    qtensor::QTensorDialect, CBitDialect, scf::SCFDialect,
+                    arith::ArithDialect, func::FuncDialect,
+                    cf::ControlFlowDialect>();
     context = std::make_unique<MLIRContext>();
     context->appendDialectRegistry(registry);
     context->loadAllAvailableDialects();
@@ -895,6 +907,56 @@ TEST_F(MappingPassFixture,
         }
       }
     }
+  }
+}
+
+TEST_F(MappingPassFixture, RouteAcrossPassThroughOperation) {
+  // Three qubits interact pairwise, which a line of three sites cannot
+  // realize without a SWAP. The last interaction follows the assertion, so
+  // routing must continue past it.
+  const auto target = llvm::cantFail(
+      CompilerTarget::create(3, Connectivity::fromCouplings({{0, 1}, {1, 2}}),
+                             NativeOperations::unrestricted()));
+  auto moduleOp = parseSourceString<ModuleOp>(R"mlir(
+    module {
+      func.func @main() attributes {mqt.entry_point} {
+        %a0 = qco.alloc : !qco.qubit
+        %b0 = qco.alloc : !qco.qubit
+        %c0 = qco.alloc : !qco.qubit
+        %a1, %b1 = qco.ctrl(%a0) targets (%t0 = %b0) {
+          %t1 = qco.z %t0 : !qco.qubit
+          qco.yield %t1 : !qco.qubit
+        } : ({!qco.qubit}, {!qco.qubit})
+        %b2, %c1 = qco.ctrl(%b1) targets (%t2 = %c0) {
+          %t3 = qco.z %t2 : !qco.qubit
+          qco.yield %t3 : !qco.qubit
+        } : ({!qco.qubit}, {!qco.qubit})
+        %a2, %b3, %c2 = qassert.sup %a1, %b2, %c1
+            : !qco.qubit, !qco.qubit, !qco.qubit
+        %a3, %c3 = qco.ctrl(%a2) targets (%t4 = %c2) {
+          %t5 = qco.z %t4 : !qco.qubit
+          qco.yield %t5 : !qco.qubit
+        } : ({!qco.qubit}, {!qco.qubit})
+        qco.sink %a3 : !qco.qubit
+        qco.sink %b3 : !qco.qubit
+        qco.sink %c3 : !qco.qubit
+        return
+      }
+    }
+  )mlir",
+                                              context.get());
+  ASSERT_TRUE(moduleOp);
+
+  for (const auto seed : {0U, 42U}) {
+    SCOPED_TRACE(seed);
+    OwningOpRef<ModuleOp> mapped = moduleOp->clone();
+    ASSERT_TRUE(succeeded(runMapping(
+        *mapped, target, MappingPassOptions{.ntrials = 1, .seed = seed})));
+    ASSERT_TRUE(succeeded(verify(*mapped)));
+    EXPECT_TRUE(isExecutable(getEntryPoint(*mapped), target));
+    size_t assertions = 0;
+    mapped->walk([&](qassert::SupOp) { ++assertions; });
+    EXPECT_EQ(assertions, 1U);
   }
 }
 

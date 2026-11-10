@@ -1981,7 +1981,8 @@ private:
 
         const auto release =
             TypeSwitch<Operation*, bool>(op)
-                .Case([](BarrierOp) { return true; })
+                .Case<BarrierOp, QubitPassThroughOpInterface>(
+                    [](auto) { return true; })
                 .Case([&](UnitaryOpInterface) {
                   if (indices.size() == 1) {
                     return true;

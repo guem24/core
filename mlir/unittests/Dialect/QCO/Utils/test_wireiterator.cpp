@@ -8,6 +8,8 @@
  * Licensed under the MIT License
  */
 
+#include "mqt/Dialect/QAssert/IR/QAssertDialect.h"
+#include "mqt/Dialect/QAssert/IR/QAssertOps.h"
 #include "mqt/Dialect/QCO/Builder/QCOProgramBuilder.h"
 #include "mqt/Dialect/QCO/IR/QCODialect.h"
 #include "mqt/Dialect/QCO/IR/QCOOps.h"
@@ -43,8 +45,8 @@ class WireIteratorFixture : public testing::Test {
 protected:
   void SetUp() override {
     DialectRegistry registry;
-    registry.insert<qco::QCODialect, scf::SCFDialect, arith::ArithDialect,
-                    func::FuncDialect>();
+    registry.insert<qco::QCODialect, qassert::QAssertDialect, scf::SCFDialect,
+                    arith::ArithDialect, func::FuncDialect>();
 
     context = std::make_unique<MLIRContext>();
     context->appendDialectRegistry(registry);
@@ -350,6 +352,35 @@ TEST_F(WireIteratorFixture, TraversalTerminatesAtUnknownCarrier) {
   qco::WireIterator backward(carried);
   --backward;
   EXPECT_EQ(backward, std::default_sentinel);
+}
+
+TEST_F(WireIteratorFixture, PassThroughOperationContinuesWire) {
+  // The assertion lists the qubits in reverse order, so each wire must follow
+  // the result at the position of its operand.
+  auto moduleOp = parseModule(R"mlir(
+    module {
+      func.func @main() {
+        %a0 = qco.alloc : !qco.qubit
+        %b0 = qco.alloc : !qco.qubit
+        %b1, %a1 = qassert.ent %b0, %a0 : !qco.qubit, !qco.qubit
+        qco.sink %a1 : !qco.qubit
+        qco.sink %b1 : !qco.qubit
+        return
+      }
+    }
+  )mlir");
+  ASSERT_TRUE(moduleOp);
+  auto ent = findOp<qassert::EntOp>(*moduleOp);
+  ASSERT_TRUE(ent);
+  const auto b0 = ent.getOperand(0);
+  const auto a0 = ent.getOperand(1);
+  const auto b1 = ent.getResult(0);
+  const auto a1 = ent.getResult(1);
+
+  EXPECT_EQ(getChain(a0).values, (SmallVector<Value>{a0, a1, a1}));
+  EXPECT_EQ(getChain(b0).values, (SmallVector<Value>{b0, b1, b1}));
+  EXPECT_EQ(getChain(a1, -1).values, (SmallVector<Value>{a1, a0}));
+  EXPECT_EQ(getChain(b1, -1).values, (SmallVector<Value>{b1, b0}));
 }
 
 TEST_F(WireIteratorFixture, UnitaryCallContinuesWire) {

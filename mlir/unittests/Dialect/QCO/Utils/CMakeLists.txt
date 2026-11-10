@@ -20,6 +20,7 @@ target_link_libraries(
   PRIVATE
     GTest::gtest_main
     MLIRParser
+    MLIRQAssertDialect
     MLIRQCODDFunctionality
     MLIRQCOUtils
     MLIRQCOProgramBuilder

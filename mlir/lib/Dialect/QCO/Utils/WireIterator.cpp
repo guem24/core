@@ -84,6 +84,9 @@ void WireIterator::forward() {
             use.getOperandNumber() - op.getInputQubits().getBeginOperandIndex();
         qubit_ = op.getOutputQubit(index);
       })
+      .Case([&](QubitPassThroughOpInterface op) {
+        qubit_ = op.getOutputQubits()[use.getOperandNumber()];
+      })
       .Case([&](MeasureOp op) { qubit_ = op.getQubitOut(); })
       .Case([&](ResetOp op) { qubit_ = op.getQubitOut(); })
       .Case([&](scf::ForOp op) { qubit_ = op.getTiedLoopResult(&use); })
@@ -126,6 +129,10 @@ void WireIterator::backward() {
     TypeSwitch<Operation*>(op_)
         .Case([&](UnitaryOpInterface op) {
           qubit_ = op.getInputForOutput(qubit_);
+        })
+        .Case([&](QubitPassThroughOpInterface op) {
+          qubit_ =
+              op.getInputQubits()[cast<OpResult>(qubit_).getResultNumber()];
         })
         .Case([&](MeasureOp op) { qubit_ = op.getQubitIn(); })
         .Case([&](ResetOp op) { qubit_ = op.getQubitIn(); })

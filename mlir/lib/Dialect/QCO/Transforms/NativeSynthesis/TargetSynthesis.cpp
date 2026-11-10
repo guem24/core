@@ -402,7 +402,8 @@ static FailureOr<SiteMap> collectStaticSites(Operation* root, bool indexed) {
       for (auto output : operation->getResults()) {
         sites.try_emplace(output, std::nullopt);
       }
-    } else if (isa<UnitaryOpInterface, ResetOp, MeasureOp>(operation)) {
+    } else if (isa<UnitaryOpInterface, QubitPassThroughOpInterface, ResetOp,
+                   MeasureOp>(operation)) {
       if (propagate(operation->getOperands(), operation->getResults())
               .wasInterrupted()) {
         return WalkResult::interrupt();

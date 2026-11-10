@@ -193,9 +193,11 @@ def QubitPassThroughOpInterface : OpInterface<"QubitPassThroughOpInterface"> {
     operand i. The operation does not change the quantum state and is not
     executed on a target.
 
-    The wire check in `qco::verifyLinearity` follows qubits through these
-    operations. Optimizations that look for gates do not match these
-    operations, so no gate is moved across them.
+    QCO code that follows qubits through a program, such as
+    `qco::verifyLinearity`, `qco::WireIterator`, placement and routing, and
+    target-native synthesis, follows them through these operations.
+    Optimizations that look for gates do not match these operations, so no
+    gate is moved across them.
   }];
 
   let cppNamespace = "::mlir::qco";
