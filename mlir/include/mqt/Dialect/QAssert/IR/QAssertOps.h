@@ -12,6 +12,7 @@
 
 #include "mqt/Dialect/QAssert/IR/QAssertDialect.h"
 #include "mqt/Dialect/QCO/IR/QCODialect.h"
+#include "mqt/Dialect/QCO/IR/QCOInterfaces.h"
 
 #include "mlir/Bytecode/BytecodeOpInterface.h"
 #include "mlir/IR/Builders.h"

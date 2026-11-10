@@ -14,10 +14,13 @@
 #include "mqt/Dialect/QAssert/IR/QAssertDialect.h"
 #include "mqt/Dialect/QAssert/IR/QAssertOps.h"
 #include "mqt/Dialect/QCO/IR/QCODialect.h"
+#include "mqt/Dialect/QCO/QCOUtils.h"
 
 #include "gtest/gtest.h"
 
+#include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
+#include "mlir/Dialect/SCF/IR/SCF.h"
 #include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/IR/BuiltinOps.h"
 #include "mlir/IR/Diagnostics.h"
@@ -46,7 +49,8 @@ protected:
   void SetUp() override {
     DialectRegistry registry;
     registry
-        .insert<func::FuncDialect, qassert::QAssertDialect, qco::QCODialect>();
+        .insert<arith::ArithDialect, func::FuncDialect, qassert::QAssertDialect,
+                qco::QCODialect, scf::SCFDialect>();
     context = std::make_unique<MLIRContext>(registry);
     context->loadAllAvailableDialects();
   }
@@ -823,6 +827,121 @@ TEST_F(QAssertIRTest, AssertionsArePure) {
   EXPECT_TRUE(isPure(ent));
   EXPECT_TRUE(isPure(eq));
   EXPECT_TRUE(isPure(span));
+}
+
+/// A program that uses an assertion where QCO checks that each qubit leaving
+/// a region or function continues the qubit that entered it.
+struct ControlFlowCase {
+  const char* name;
+  const char* program;
+};
+
+class QAssertControlFlowTest
+    : public QAssertIRTest,
+      public ::testing::WithParamInterface<ControlFlowCase> {
+public:
+  /// Names each test after its case, such as `QcoIf`.
+  [[nodiscard]] static std::string
+  caseName(const ::testing::TestParamInfo<ControlFlowCase>& info) {
+    return info.param.name;
+  }
+};
+
+TEST_P(QAssertControlFlowTest, AcceptsAssertionInControlFlow) {
+  auto moduleOp = parse(GetParam().program);
+  ASSERT_TRUE(moduleOp);
+  EXPECT_TRUE(succeeded(qco::verifyLinearity(*moduleOp)));
+}
+
+INSTANTIATE_TEST_SUITE_P(
+    AllCarriers, QAssertControlFlowTest,
+    ::testing::Values(
+        // The assertion lists the qubits in reverse order, so its results
+        // must still be matched to its operands by position.
+        ControlFlowCase{"QcoIf", R"mlir(
+          module {
+            func.func @main(%c : i1) {
+              %a0 = qco.alloc : !qco.qubit
+              %b0 = qco.alloc : !qco.qubit
+              %a1, %b1 = qco.if %c args(%x = %a0, %y = %b0)
+                  -> (!qco.qubit, !qco.qubit) {
+                %y1, %x1 = qassert.ent %y, %x : !qco.qubit, !qco.qubit
+                qco.yield %x1, %y1 : !qco.qubit, !qco.qubit
+              } else args(%x = %a0, %y = %b0) {
+                qco.yield %x, %y : !qco.qubit, !qco.qubit
+              }
+              qco.sink %a1 : !qco.qubit
+              qco.sink %b1 : !qco.qubit
+              return
+            }
+          }
+        )mlir"},
+        ControlFlowCase{"ScfFor", R"mlir(
+          module {
+            func.func @main() {
+              %c0 = arith.constant 0 : index
+              %c1 = arith.constant 1 : index
+              %c2 = arith.constant 2 : index
+              %q0 = qco.alloc : !qco.qubit
+              %q1 = scf.for %i = %c0 to %c2 step %c1 iter_args(%arg = %q0)
+                  -> (!qco.qubit) {
+                %h = qco.h %arg : !qco.qubit
+                %a = qassert.sup %h : !qco.qubit
+                scf.yield %a : !qco.qubit
+              }
+              qco.sink %q1 : !qco.qubit
+              return
+            }
+          }
+        )mlir"},
+        ControlFlowCase{"FunctionArgument", R"mlir(
+          module {
+            func.func @check(%q : !qco.qubit) -> !qco.qubit {
+              %a = qassert.sup %q : !qco.qubit
+              return %a : !qco.qubit
+            }
+            func.func @main() {
+              %q0 = qco.alloc : !qco.qubit
+              %q1 = func.call @check(%q0) : (!qco.qubit) -> !qco.qubit
+              qco.sink %q1 : !qco.qubit
+              return
+            }
+          }
+        )mlir"}),
+    QAssertControlFlowTest::caseName);
+
+TEST_F(QAssertIRTest, RejectsQubitsSwappedAcrossAssertion) {
+  // The branch yields the qubits in the wrong order. Following the qubits
+  // through the assertion must still detect it.
+  auto moduleOp = parse(R"mlir(
+    module {
+      func.func @main(%c : i1) {
+        %a0 = qco.alloc : !qco.qubit
+        %b0 = qco.alloc : !qco.qubit
+        %a1, %b1 = qco.if %c args(%x = %a0, %y = %b0)
+            -> (!qco.qubit, !qco.qubit) {
+          %y1, %x1 = qassert.ent %y, %x : !qco.qubit, !qco.qubit
+          qco.yield %y1, %x1 : !qco.qubit, !qco.qubit
+        } else args(%x = %a0, %y = %b0) {
+          qco.yield %x, %y : !qco.qubit, !qco.qubit
+        }
+        qco.sink %a1 : !qco.qubit
+        qco.sink %b1 : !qco.qubit
+        return
+      }
+    }
+  )mlir");
+  ASSERT_TRUE(moduleOp);
+
+  std::string diagnostics;
+  ScopedDiagnosticHandler handler(context.get(), [&](Diagnostic& message) {
+    diagnostics += message.str();
+    return success();
+  });
+  EXPECT_TRUE(failed(qco::verifyLinearity(*moduleOp)));
+  EXPECT_TRUE(StringRef(diagnostics)
+                  .contains("requires positional quantum state correspondence"))
+      << diagnostics;
 }
 
 } // namespace

@@ -182,4 +182,34 @@ def UnitaryOpInterface : OpInterface<"UnitaryOpInterface"> {
   }];
 }
 
+//===----------------------------------------------------------------------===//
+// QubitPassThroughOpInterface
+//===----------------------------------------------------------------------===//
+
+def QubitPassThroughOpInterface : OpInterface<"QubitPassThroughOpInterface"> {
+  let description = [{
+    An operation with this interface gives its qubits back unchanged. All
+    operands and results are qubits, and result i is the same qubit as
+    operand i. The operation does not change the quantum state and is not
+    executed on a target.
+
+    The wire check in `qco::verifyLinearity` follows qubits through these
+    operations. Optimizations that look for gates do not match these
+    operations, so no gate is moved across them.
+  }];
+
+  let cppNamespace = "::mlir::qco";
+
+  let methods = [InterfaceMethod<"Returns a range of all input qubits.",
+                                 "OperandRange", "getInputQubits", (ins),
+                                 [{ return $_op->getOperands(); }]>,
+                 InterfaceMethod<"Returns a range of all output qubits.",
+                                 "ResultRange", "getOutputQubits", (ins),
+                                 [{ return $_op->getResults(); }]>];
+
+  let verify = [{
+    return ::mlir::qco::verifyQubitPassThroughOpInterface($_op);
+  }];
+}
+
 #endif // MLIR_DIALECT_QCO_IR_QCOINTERFACES_TD

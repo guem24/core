@@ -9,6 +9,7 @@
 #ifndef MLIR_DIALECT_QASSERT_IR_QASSERTOPS_TD
 #define MLIR_DIALECT_QASSERT_IR_QASSERTOPS_TD
 
+include "mqt/Dialect/QCO/IR/QCOInterfaces.td"
 include "mqt/Dialect/QCO/IR/QCOTypes.td"
 include "mqt/Dialect/QAssert/IR/QAssertDialect.td"
 
@@ -24,9 +25,10 @@ class QAssertOp<string mnemonic, list<Trait> traits = []>
 
 class QAssertQubitsOp<string mnemonic, list<Trait> traits = []>
     : QAssertOp<mnemonic,
-                !listconcat([Pure, RangedTypesMatchWith<
-                                       "input and output qubit types match",
-                                       "qubits_in", "qubits_out", "$_self">],
+                !listconcat([Pure, QubitPassThroughOpInterface,
+                             RangedTypesMatchWith<
+                                 "input and output qubit types match",
+                                 "qubits_in", "qubits_out", "$_self">],
                             traits)> {
   let arguments =
       (ins Arg<Variadic<QubitType>, "the target qubits">:$qubits_in);

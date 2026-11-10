@@ -557,6 +557,20 @@ LogicalResult mlir::qco::verifyUnitaryOpInterface(Operation* op) {
       op, cast<UnitaryOpInterface>(op).getParameters());
 }
 
+LogicalResult mlir::qco::verifyQubitPassThroughOpInterface(Operation* op) {
+  if (op->getNumOperands() != op->getNumResults()) {
+    return op->emitOpError("must have one result per qubit operand");
+  }
+  for (auto [input, output] :
+       llvm::zip_equal(op->getOperandTypes(), op->getResultTypes())) {
+    if (!isa<QubitType>(input) || input != output) {
+      return op->emitOpError("must pass each qubit operand through to the "
+                             "result at the same position");
+    }
+  }
+  return success();
+}
+
 #include "mqt/Dialect/QCO/IR/QCOInterfaces.cpp.inc"
 
 //===----------------------------------------------------------------------===//
