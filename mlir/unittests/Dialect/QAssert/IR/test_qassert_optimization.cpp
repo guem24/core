@@ -19,6 +19,7 @@
 
 #include "gtest/gtest.h"
 
+#include "mlir/Dialect/Func/Extensions/InlinerExtension.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/IR/BuiltinOps.h"
 #include "mlir/IR/DialectRegistry.h"
@@ -50,6 +51,7 @@ protected:
     DialectRegistry registry;
     registry
         .insert<func::FuncDialect, qassert::QAssertDialect, qco::QCODialect>();
+    func::registerInlinerExtension(registry);
     context = std::make_unique<MLIRContext>(registry);
     context->loadAllAvailableDialects();
   }
@@ -176,6 +178,39 @@ TEST_P(QAssertSingleAssertionTest, RemoveDeadGatesKeepsObservedGates) {
   auto ops = assertions(*moduleOp);
   ASSERT_EQ(ops.size(), 1);
   EXPECT_TRUE(ops.front()->getOperand(0).getDefiningOp<qco::HOp>());
+}
+
+TEST_P(QAssertSingleAssertionTest, RemoveDeadGatesKeepsAssertionInIf) {
+  // The if contains only the assertion, so it has no memory effects.
+  auto moduleOp = parse(withAssertion(R"mlir(
+    module {
+      func.func @main() -> i1 {
+        %m0 = qco.alloc : !qco.qubit
+        %p0 = qco.alloc : !qco.qubit
+        %q0 = qco.alloc : !qco.qubit
+        %m1, %c = qco.measure %m0 : !qco.qubit
+        %p1 = qco.h %p0 : !qco.qubit
+        %p2, %q1 = qco.if %c args(%a1 = %p1, %b0 = %q0)
+            -> (!qco.qubit, !qco.qubit) {
+          ASSERTION
+          qco.yield %a2, %b1 : !qco.qubit, !qco.qubit
+        } else args(%a1 = %p1, %b0 = %q0) {
+          qco.yield %a1, %b0 : !qco.qubit, !qco.qubit
+        }
+        qco.sink %m1 : !qco.qubit
+        qco.sink %p2 : !qco.qubit
+        qco.sink %q1 : !qco.qubit
+        return %c : i1
+      }
+    }
+  )mlir"));
+  ASSERT_TRUE(moduleOp);
+
+  ASSERT_TRUE(runPass(*moduleOp, qco::createRemoveDeadGates()).succeeded());
+
+  EXPECT_EQ(count<qco::IfOp>(*moduleOp), 1);
+  EXPECT_EQ(assertions(*moduleOp).size(), 1);
+  EXPECT_EQ(count<qco::HOp>(*moduleOp), 1);
 }
 
 INSTANTIATE_TEST_SUITE_P(
@@ -389,6 +424,79 @@ TEST_F(QAssertOptimizationTest, InterleavedAssertionsBlockGateCancellation) {
   EXPECT_TRUE(ents[0].getQubitsIn()[1].getDefiningOp<qco::CtrlOp>());
   EXPECT_TRUE(spans[0].getQubitsIn()[0].getDefiningOp<qco::HOp>());
   EXPECT_TRUE(spans[0].getQubitsIn()[1].getDefiningOp<qco::CtrlOp>());
+}
+
+//===----------------------------------------------------------------------===//
+// Inlining
+//===----------------------------------------------------------------------===//
+
+TEST_F(QAssertOptimizationTest, RemoveDeadGatesKeepsAssertionInNestedIf) {
+  auto moduleOp = parse(R"mlir(
+    module {
+      func.func @main() -> i1 {
+        %m0 = qco.alloc : !qco.qubit
+        %a0 = qco.alloc : !qco.qubit
+        %m1, %c = qco.measure %m0 : !qco.qubit
+        %a1 = qco.if %c args(%x0 = %a0) -> (!qco.qubit) {
+          %x1 = qco.x %x0 : !qco.qubit
+          %x2 = qco.if %c args(%y0 = %x1) -> (!qco.qubit) {
+            %y1 = qassert.sup %y0 : !qco.qubit
+            qco.yield %y1 : !qco.qubit
+          } else args(%y0 = %x1) {
+            qco.yield %y0 : !qco.qubit
+          }
+          qco.yield %x2 : !qco.qubit
+        } else args(%x0 = %a0) {
+          qco.yield %x0 : !qco.qubit
+        }
+        qco.sink %m1 : !qco.qubit
+        qco.sink %a1 : !qco.qubit
+        return %c : i1
+      }
+    }
+  )mlir");
+  ASSERT_TRUE(moduleOp);
+
+  ASSERT_TRUE(runPass(*moduleOp, qco::createRemoveDeadGates()).succeeded());
+
+  EXPECT_EQ(count<qco::IfOp>(*moduleOp), 2);
+  EXPECT_EQ(count<qassert::SupOp>(*moduleOp), 1);
+  EXPECT_EQ(count<qco::XOp>(*moduleOp), 1);
+}
+
+TEST_F(QAssertOptimizationTest, InlinerInlinesFunctionWithAssertion) {
+  // Placement and routing and the QIR export need all calls that carry qubits
+  // inlined.
+  auto moduleOp = parse(R"mlir(
+    module {
+      func.func @check(%q : !qco.qubit) -> !qco.qubit {
+        %h = qco.h %q : !qco.qubit
+        %a = qassert.sup %h : !qco.qubit
+        return %a : !qco.qubit
+      }
+      func.func @main() {
+        %q0 = qco.alloc : !qco.qubit
+        %q1 = func.call @check(%q0) : (!qco.qubit) -> !qco.qubit
+        qco.sink %q1 : !qco.qubit
+        return
+      }
+    }
+  )mlir");
+  ASSERT_TRUE(moduleOp);
+
+  ASSERT_TRUE(runPass(*moduleOp, createInlinerPass()).succeeded());
+
+  auto main = moduleOp->lookupSymbol<func::FuncOp>("main");
+  ASSERT_TRUE(main);
+  size_t calls = 0;
+  size_t sups = 0;
+  main.walk([&](func::CallOp) { ++calls; });
+  main.walk([&](qassert::SupOp sup) {
+    ++sups;
+    EXPECT_TRUE(sup.getQubitsIn()[0].getDefiningOp<qco::HOp>());
+  });
+  EXPECT_EQ(calls, 0);
+  EXPECT_EQ(sups, 1);
 }
 
 } // namespace

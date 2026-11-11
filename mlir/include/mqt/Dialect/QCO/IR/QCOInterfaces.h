@@ -26,8 +26,9 @@
 namespace mlir::qco {
 
 LogicalResult verifyUnitaryOpInterface(Operation* op);
+LogicalResult verifyQubitPassThroughOpInterface(Operation* op);
 
-}
+} // namespace mlir::qco
 
 // clang-format:off
 #include "mqt/Dialect/QCO/IR/QCOInterfaces.h.inc" // IWYU pragma: export

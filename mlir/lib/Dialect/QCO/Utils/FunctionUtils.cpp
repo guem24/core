@@ -301,6 +301,9 @@ LogicalResult mlir::qco::collectWireOrigins(Operation* root,
       tie(ValueRange{measure.getQubitIn()}, ValueRange{measure.getQubitOut()});
     } else if (auto reset = dyn_cast<qco::ResetOp>(op)) {
       tie(ValueRange{reset.getQubitIn()}, ValueRange{reset.getQubitOut()});
+    } else if (auto passThrough =
+                   dyn_cast<qco::QubitPassThroughOpInterface>(op)) {
+      tie(passThrough.getInputQubits(), passThrough.getOutputQubits());
     } else if (auto extract = dyn_cast<qtensor::ExtractOp>(op)) {
       origins[extract->getResult(0)] = origin(extract.getTensor());
     } else if (auto insert = dyn_cast<qtensor::InsertOp>(op)) {

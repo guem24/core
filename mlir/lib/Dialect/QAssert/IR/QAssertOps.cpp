@@ -11,6 +11,7 @@
 #include "mqt/Dialect/QAssert/IR/QAssertOps.h"
 
 #include "mqt/Dialect/QAssert/IR/QAssertDialect.h"
+#include "mqt/Dialect/QCO/IR/QCOInterfaces.h"
 
 #include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/IR/BuiltinTypes.h"
@@ -19,6 +20,7 @@
 #include "mlir/IR/ValueRange.h"
 #include "mlir/Support/LLVM.h"
 #include "mlir/Support/LogicalResult.h"
+#include "mlir/Transforms/InliningUtils.h"
 
 #include "llvm/ADT/APFloat.h"
 #include "llvm/ADT/APInt.h"
@@ -46,11 +48,29 @@ using namespace mlir::qassert;
 
 #include "mqt/Dialect/QAssert/IR/QAssertOpsDialect.cpp.inc"
 
+namespace {
+
+/// Allows inlining functions that contain assertions.
+struct QAssertInlinerInterface final : DialectInlinerInterface {
+  using DialectInlinerInterface::DialectInlinerInterface;
+
+  // Assertions are not gates, so they must not move into the body of a
+  // `qco.ctrl`, `qco.inv`, or `qco.pow`.
+  bool isLegalToInline(Operation* /*operation*/, Region* destination,
+                       bool /*wouldBeCloned*/,
+                       IRMapping& /*valueMapping*/) const final {
+    return !isa<qco::UnitaryOpInterface>(destination->getParentOp());
+  }
+};
+
+} // namespace
+
 void QAssertDialect::initialize() {
   addOperations<
 #define GET_OP_LIST
 #include "mqt/Dialect/QAssert/IR/QAssertOps.cpp.inc"
       >();
+  addInterfaces<QAssertInlinerInterface>();
 }
 
 //===----------------------------------------------------------------------===//

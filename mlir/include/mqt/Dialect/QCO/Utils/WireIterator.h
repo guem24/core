@@ -25,6 +25,8 @@ namespace mlir::qco {
 /// It requires a scalar QCO qubit and linear def-use chains.
 /// Unitary calls preserve the wire without entering the callee. Generic
 /// `func.call` operations end traversal; clients manage callee traversal.
+/// Operations that implement `QubitPassThroughOpInterface` continue the wire
+/// at the same position. Other unknown operations end traversal.
 class [[nodiscard]] WireIterator {
 public:
   using iterator_category = std::bidirectional_iterator_tag;

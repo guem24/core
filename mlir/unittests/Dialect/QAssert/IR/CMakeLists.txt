@@ -12,9 +12,13 @@ target_link_libraries(
   ${qassert_ir_target}
   PRIVATE
     GTest::gtest_main
+    MLIRArithDialect
     MLIRFuncDialect
+    MLIRFuncInlinerExtension
     MLIRQAssertDialect
     MLIRQCODialect
+    MLIRQCOUtils
+    MLIRSCFDialect
     MLIRParser
     MLIRSupport
     MLIRQCOTransforms

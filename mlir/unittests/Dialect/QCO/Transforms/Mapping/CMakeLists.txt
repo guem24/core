@@ -15,6 +15,7 @@ target_link_libraries(
     GTest::gtest_main
     MLIRParser
     MLIRMQTDialect
+    MLIRQAssertDialect
     MQTCompilerTarget
     MLIRQCODDFunctionality
     MLIRQCOProgramBuilder
