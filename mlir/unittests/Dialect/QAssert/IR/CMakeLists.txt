@@ -14,6 +14,7 @@ target_link_libraries(
     GTest::gtest_main
     MLIRArithDialect
     MLIRFuncDialect
+    MLIRFuncInlinerExtension
     MLIRQAssertDialect
     MLIRQCODialect
     MLIRQCOUtils

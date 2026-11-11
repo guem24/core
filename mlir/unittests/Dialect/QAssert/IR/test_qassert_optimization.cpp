@@ -19,6 +19,7 @@
 
 #include "gtest/gtest.h"
 
+#include "mlir/Dialect/Func/Extensions/InlinerExtension.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/IR/BuiltinOps.h"
 #include "mlir/IR/DialectRegistry.h"
@@ -50,6 +51,7 @@ protected:
     DialectRegistry registry;
     registry
         .insert<func::FuncDialect, qassert::QAssertDialect, qco::QCODialect>();
+    func::registerInlinerExtension(registry);
     context = std::make_unique<MLIRContext>(registry);
     context->loadAllAvailableDialects();
   }
@@ -389,6 +391,45 @@ TEST_F(QAssertOptimizationTest, InterleavedAssertionsBlockGateCancellation) {
   EXPECT_TRUE(ents[0].getQubitsIn()[1].getDefiningOp<qco::CtrlOp>());
   EXPECT_TRUE(spans[0].getQubitsIn()[0].getDefiningOp<qco::HOp>());
   EXPECT_TRUE(spans[0].getQubitsIn()[1].getDefiningOp<qco::CtrlOp>());
+}
+
+//===----------------------------------------------------------------------===//
+// Inlining
+//===----------------------------------------------------------------------===//
+
+TEST_F(QAssertOptimizationTest, InlinerInlinesFunctionWithAssertion) {
+  // Placement and routing and the QIR export need all calls that carry qubits
+  // inlined.
+  auto moduleOp = parse(R"mlir(
+    module {
+      func.func @check(%q : !qco.qubit) -> !qco.qubit {
+        %h = qco.h %q : !qco.qubit
+        %a = qassert.sup %h : !qco.qubit
+        return %a : !qco.qubit
+      }
+      func.func @main() {
+        %q0 = qco.alloc : !qco.qubit
+        %q1 = func.call @check(%q0) : (!qco.qubit) -> !qco.qubit
+        qco.sink %q1 : !qco.qubit
+        return
+      }
+    }
+  )mlir");
+  ASSERT_TRUE(moduleOp);
+
+  ASSERT_TRUE(runPass(*moduleOp, createInlinerPass()).succeeded());
+
+  auto main = moduleOp->lookupSymbol<func::FuncOp>("main");
+  ASSERT_TRUE(main);
+  size_t calls = 0;
+  size_t sups = 0;
+  main.walk([&](func::CallOp) { ++calls; });
+  main.walk([&](qassert::SupOp sup) {
+    ++sups;
+    EXPECT_TRUE(sup.getQubitsIn()[0].getDefiningOp<qco::HOp>());
+  });
+  EXPECT_EQ(calls, 0);
+  EXPECT_EQ(sups, 1);
 }
 
 } // namespace
