@@ -13,6 +13,7 @@
 #include "mqt/Dialect/MQT/Utils/Angles.h"
 #include "mqt/Dialect/MQT/Utils/ConstantFolding.h"
 #include "mqt/Dialect/MQT/Utils/Parameters.h"
+#include "mqt/Dialect/QCO/IR/QCOInterfaces.h"
 #include "mqt/Dialect/QCO/IR/QCOOps.h"
 #include "mqt/Dialect/QCO/Utils/Matrix.h"
 
@@ -20,6 +21,7 @@
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/Support/LLVM.h"
 #include "mlir/Support/LogicalResult.h"
+#include "mlir/Support/WalkResult.h"
 
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/TypeSwitch.h"
@@ -36,12 +38,22 @@ void populateFoldStaticIfPatterns(RewritePatternSet& patterns);
 /// Check if given quantum operation is unused (i.e., only used by sinks
 /// or resets and has no memory effects).
 ///
+/// Operations that implement `QubitPassThroughOpInterface`, such as
+/// assertions, are never dead, and neither are regions that contain them.
+///
 /// @param op The operation to check.
 /// @return bool True if the operation is unused, false otherwise.
 inline bool checkDeadGate(Operation* op) {
   if (!isMemoryEffectFree(op)) {
     // This ignores operations and regions that have children with memory
     // effects, which should never be considered dead.
+    return false;
+  }
+  // Pass-through operations have no memory effects, but they check the state
+  // they see, so removing them would hide that check.
+  if (op->walk([](QubitPassThroughOpInterface) {
+          return WalkResult::interrupt();
+        }).wasInterrupted()) {
     return false;
   }
   return llvm::all_of(op->getUsers(), [](Operation* user) {

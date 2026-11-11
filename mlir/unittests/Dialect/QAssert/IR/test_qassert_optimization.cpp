@@ -180,6 +180,39 @@ TEST_P(QAssertSingleAssertionTest, RemoveDeadGatesKeepsObservedGates) {
   EXPECT_TRUE(ops.front()->getOperand(0).getDefiningOp<qco::HOp>());
 }
 
+TEST_P(QAssertSingleAssertionTest, RemoveDeadGatesKeepsAssertionInIf) {
+  // The if contains only the assertion, so it has no memory effects.
+  auto moduleOp = parse(withAssertion(R"mlir(
+    module {
+      func.func @main() -> i1 {
+        %m0 = qco.alloc : !qco.qubit
+        %p0 = qco.alloc : !qco.qubit
+        %q0 = qco.alloc : !qco.qubit
+        %m1, %c = qco.measure %m0 : !qco.qubit
+        %p1 = qco.h %p0 : !qco.qubit
+        %p2, %q1 = qco.if %c args(%a1 = %p1, %b0 = %q0)
+            -> (!qco.qubit, !qco.qubit) {
+          ASSERTION
+          qco.yield %a2, %b1 : !qco.qubit, !qco.qubit
+        } else args(%a1 = %p1, %b0 = %q0) {
+          qco.yield %a1, %b0 : !qco.qubit, !qco.qubit
+        }
+        qco.sink %m1 : !qco.qubit
+        qco.sink %p2 : !qco.qubit
+        qco.sink %q1 : !qco.qubit
+        return %c : i1
+      }
+    }
+  )mlir"));
+  ASSERT_TRUE(moduleOp);
+
+  ASSERT_TRUE(runPass(*moduleOp, qco::createRemoveDeadGates()).succeeded());
+
+  EXPECT_EQ(count<qco::IfOp>(*moduleOp), 1);
+  EXPECT_EQ(assertions(*moduleOp).size(), 1);
+  EXPECT_EQ(count<qco::HOp>(*moduleOp), 1);
+}
+
 INSTANTIATE_TEST_SUITE_P(
     AllAssertions, QAssertSingleAssertionTest,
     ::testing::Values(
@@ -396,6 +429,40 @@ TEST_F(QAssertOptimizationTest, InterleavedAssertionsBlockGateCancellation) {
 //===----------------------------------------------------------------------===//
 // Inlining
 //===----------------------------------------------------------------------===//
+
+TEST_F(QAssertOptimizationTest, RemoveDeadGatesKeepsAssertionInNestedIf) {
+  auto moduleOp = parse(R"mlir(
+    module {
+      func.func @main() -> i1 {
+        %m0 = qco.alloc : !qco.qubit
+        %a0 = qco.alloc : !qco.qubit
+        %m1, %c = qco.measure %m0 : !qco.qubit
+        %a1 = qco.if %c args(%x0 = %a0) -> (!qco.qubit) {
+          %x1 = qco.x %x0 : !qco.qubit
+          %x2 = qco.if %c args(%y0 = %x1) -> (!qco.qubit) {
+            %y1 = qassert.sup %y0 : !qco.qubit
+            qco.yield %y1 : !qco.qubit
+          } else args(%y0 = %x1) {
+            qco.yield %y0 : !qco.qubit
+          }
+          qco.yield %x2 : !qco.qubit
+        } else args(%x0 = %a0) {
+          qco.yield %x0 : !qco.qubit
+        }
+        qco.sink %m1 : !qco.qubit
+        qco.sink %a1 : !qco.qubit
+        return %c : i1
+      }
+    }
+  )mlir");
+  ASSERT_TRUE(moduleOp);
+
+  ASSERT_TRUE(runPass(*moduleOp, qco::createRemoveDeadGates()).succeeded());
+
+  EXPECT_EQ(count<qco::IfOp>(*moduleOp), 2);
+  EXPECT_EQ(count<qassert::SupOp>(*moduleOp), 1);
+  EXPECT_EQ(count<qco::XOp>(*moduleOp), 1);
+}
 
 TEST_F(QAssertOptimizationTest, InlinerInlinesFunctionWithAssertion) {
   // Placement and routing and the QIR export need all calls that carry qubits
