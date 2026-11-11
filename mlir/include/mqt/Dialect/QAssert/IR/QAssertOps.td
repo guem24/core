@@ -88,9 +88,9 @@ def EqOp : QAssertQubitsOp<"eq"> {
     Asserts that `qubits_in` are in the state given by `reference`. The
     reference is scaled to length 1, and the assertion holds if the
     similarity `abs(<current|reference>)` is at least the
-    `similarity_threshold`. The threshold lies in `[0, 1]` and its default
-    value is 1, which means the two states must be equal. The global phase
-    does not matter.
+    `similarity_threshold`. The threshold lies in `[0, 1]`. Its default,
+    0.99999, allows for rounded numbers such as 0.707; for larger states,
+    set a lower threshold. The global phase does not matter.
 
     If the qubits are entangled with qubits outside the list, they have no
     state vector of their own, so the assertion cannot be evaluated. All
@@ -125,7 +125,7 @@ def EqOp : QAssertQubitsOp<"eq"> {
     }];
 
   let arguments = (ins ElementsAttr:$reference,
-      DefaultValuedAttr<F64Attr, "1.0">:$similarity_threshold,
+      DefaultValuedAttr<F64Attr, "0.99999">:$similarity_threshold,
       Arg<Variadic<QubitType>, "the target qubits">:$qubits_in);
   let assemblyFormat = [{
     $qubits_in custom<Reference>($reference)

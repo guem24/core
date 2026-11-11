@@ -261,7 +261,7 @@ TEST_F(QAssertIRTest, ParsesEqAssertion) {
   EXPECT_EQ(eq.getQubitsIn().size(), 2);
   EXPECT_EQ(eq.getQubitsOut().size(), 2);
   EXPECT_EQ(eq.getReference().getNumElements(), 4);
-  EXPECT_DOUBLE_EQ(eq.getSimilarityThreshold().convertToDouble(), 1.0);
+  EXPECT_DOUBLE_EQ(eq.getSimilarityThreshold().convertToDouble(), 0.99999);
 }
 
 TEST_F(QAssertIRTest, ParsesEqThreshold) {
