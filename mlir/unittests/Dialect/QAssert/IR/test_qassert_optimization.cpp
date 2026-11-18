@@ -178,6 +178,39 @@ TEST_P(QAssertSingleAssertionTest, RemoveDeadGatesKeepsObservedGates) {
   EXPECT_TRUE(ops.front()->getOperand(0).getDefiningOp<qco::HOp>());
 }
 
+TEST_P(QAssertSingleAssertionTest, RemoveDeadGatesKeepsAssertionInIf) {
+  // The if contains only the assertion. Its read effect must keep the if.
+  auto moduleOp = parse(withAssertion(R"mlir(
+    module {
+      func.func @main() -> i1 {
+        %m0 = qco.alloc : !qco.qubit
+        %p0 = qco.alloc : !qco.qubit
+        %q0 = qco.alloc : !qco.qubit
+        %m1, %c = qco.measure %m0 : !qco.qubit
+        %p1 = qco.h %p0 : !qco.qubit
+        %p2, %q1 = qco.if %c args(%a1 = %p1, %b0 = %q0)
+            -> (!qco.qubit, !qco.qubit) {
+          ASSERTION
+          qco.yield %a2, %b1 : !qco.qubit, !qco.qubit
+        } else args(%a1 = %p1, %b0 = %q0) {
+          qco.yield %a1, %b0 : !qco.qubit, !qco.qubit
+        }
+        qco.sink %m1 : !qco.qubit
+        qco.sink %p2 : !qco.qubit
+        qco.sink %q1 : !qco.qubit
+        return %c : i1
+      }
+    }
+  )mlir"));
+  ASSERT_TRUE(moduleOp);
+
+  ASSERT_TRUE(runPass(*moduleOp, qco::createRemoveDeadGates()).succeeded());
+
+  EXPECT_EQ(count<qco::IfOp>(*moduleOp), 1);
+  EXPECT_EQ(assertions(*moduleOp).size(), 1);
+  EXPECT_EQ(count<qco::HOp>(*moduleOp), 1);
+}
+
 INSTANTIATE_TEST_SUITE_P(
     AllAssertions, QAssertSingleAssertionTest,
     ::testing::Values(

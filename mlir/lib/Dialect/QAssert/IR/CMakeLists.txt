@@ -17,7 +17,9 @@ add_mlir_dialect_library(
   PUBLIC
   MLIRQCODialect
   PRIVATE
+  MLIRFuncDialect
   MLIRIR
+  MLIRMQTDialect
   MLIRSideEffectInterfaces)
 
 mqt_mlir_target_use_project_options(MLIRQAssertDialect)

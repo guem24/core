@@ -10,6 +10,7 @@
 #define MLIR_DIALECT_QASSERT_IR_QASSERTOPS_TD
 
 include "mqt/Dialect/QCO/IR/QCOTypes.td"
+include "mqt/Dialect/QCO/IR/QCOInterfaces.td"
 include "mqt/Dialect/QAssert/IR/QAssertDialect.td"
 
 include "mlir/IR/OpBase.td"
@@ -22,17 +23,74 @@ include "mlir/Interfaces/SideEffectInterfaces.td"
 class QAssertOp<string mnemonic, list<Trait> traits = []>
     : Op<QAssertDialect, mnemonic, traits>;
 
+// Assertions implement QCO's `UnitaryOpInterface` as identities, like
+// `qco.barrier`, but unlike it they report no unitary matrix. QCO follows
+// qubits only through a fixed set of operations, and this interface puts
+// assertions in that set, so they can be used in `qco.if`, loops, and
+// functions. Without a matrix, no pass can merge or remove an assertion as an
+// identity gate. The read effect keeps `remove-dead-gates` from removing an
+// assertion before a sink or reset.
 class QAssertQubitsOp<string mnemonic, list<Trait> traits = []>
     : QAssertOp<mnemonic,
-                !listconcat([Pure, RangedTypesMatchWith<
-                                       "input and output qubit types match",
-                                       "qubits_in", "qubits_out", "$_self">],
+                !listconcat([MemoryEffects<[MemRead]>, UnitaryOpInterface,
+                             RangedTypesMatchWith<
+                                 "input and output qubit types match",
+                                 "qubits_in", "qubits_out", "$_self">],
                             traits)> {
   let arguments =
       (ins Arg<Variadic<QubitType>, "the target qubits">:$qubits_in);
   let results = (outs Variadic<QubitType>:$qubits_out);
   let assemblyFormat = "$qubits_in attr-dict `:` type($qubits_in)";
   let hasVerifier = 1;
+
+  // `UnitaryOpInterface` methods. Assertions have only targets, no controls
+  // and no parameters.
+  let extraClassDeclaration = [{
+    size_t getNumQubits() { return getNumTargets(); }
+    size_t getNumTargets() { return getQubitsIn().size(); }
+    static size_t getNumControls() { return 0; }
+    Value getInputQubit(size_t i) { return getInputTarget(i); }
+    OperandRange getInputQubits() { return getQubitsIn(); }
+    OperandRange getInputTargets() { return getInputQubits(); }
+    Value getOutputQubit(size_t i) { return getOutputTarget(i); }
+    ResultRange getOutputQubits() { return getQubitsOut(); }
+    Value getInputTarget(size_t i) { return getQubitsIn()[i]; }
+    Value getOutputTarget(size_t i) { return getQubitsOut()[i]; }
+    static Value getInputControl(size_t) {
+      llvm::reportFatalUsageError("assertions have no controls");
+    }
+    static OperandRange getInputControls() { return {nullptr, 0}; }
+    static Value getOutputControl(size_t) {
+      llvm::reportFatalUsageError("assertions have no controls");
+    }
+    static ResultRange getOutputControls() { return {nullptr, 0}; }
+    ResultRange getOutputTargets() { return getOutputQubits(); }
+    Value getInputForOutput(Value output) {
+      if (auto result = dyn_cast<OpResult>(output);
+          result && result.getOwner() == getOperation()) {
+        return getQubitsIn()[result.getResultNumber()];
+      }
+      llvm::reportFatalUsageError("value is not an output of the assertion");
+    }
+    Value getOutputForInput(Value input) {
+      for (auto [in, out] : llvm::zip_equal(getQubitsIn(), getQubitsOut())) {
+        if (in == input) {
+          return out;
+        }
+      }
+      llvm::reportFatalUsageError("value is not an input of the assertion");
+    }
+    static size_t getNumParams() { return 0; }
+    static Value getParameter(size_t) {
+      llvm::reportFatalUsageError("assertions have no parameters");
+    }
+    static OperandRange getParameters() { return {nullptr, 0}; }
+    StringRef getBaseSymbol() { return getOperationName(); }
+    static bool hasCompileTimeKnownUnitaryMatrix() { return false; }
+    static std::optional<::mlir::qco::DynamicMatrix> getUnitaryMatrix() {
+      return std::nullopt;
+    }
+  }];
 }
 
 def SupOp : QAssertQubitsOp<"sup"> {
