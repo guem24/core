@@ -12,10 +12,14 @@
 
 #include "mqt/Dialect/QAssert/IR/QAssertDialect.h"
 #include "mqt/Dialect/QCO/IR/QCODialect.h"
+#include "mqt/Dialect/QCO/IR/QCOInterfaces.h"
+#include "mqt/Dialect/QCO/Utils/Matrix.h"
 
 #include "mlir/Bytecode/BytecodeOpInterface.h"
 #include "mlir/IR/Builders.h"
 #include "mlir/Interfaces/SideEffectInterfaces.h"
+
+#include <optional>
 
 #define GET_OP_CLASSES
 #include "mqt/Dialect/QAssert/IR/QAssertOps.h.inc" // IWYU pragma: export

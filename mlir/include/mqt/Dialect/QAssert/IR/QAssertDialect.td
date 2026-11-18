@@ -22,8 +22,12 @@ def QAssertDialect : Dialect {
         state (`eq`), and lying in a span of basis states (`span`).
 
         Assertions act on QCO qubits. They do not change the state and return
-        their qubits in the same order. Since they are not gates, they cannot
-        be used inside `qco.ctrl`, `qco.inv`, or `qco.pow` bodies.
+        their qubits in the same order. They implement QCO's
+        `UnitaryOpInterface` as identities, like `qco.barrier`, but unlike it
+        they report no unitary matrix. QCO therefore follows their qubits
+        through `qco.if`, loops, and functions. They are not gates: they cannot
+        be used inside the body of `qco.ctrl`, `qco.inv`, or `qco.pow`, or
+        inside an `mqt.unitary` function.
     }];
   let cppNamespace = "::mlir::qassert";
   let dependentDialects = ["::mlir::qco::QCODialect"];

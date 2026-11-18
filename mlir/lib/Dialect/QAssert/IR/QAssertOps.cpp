@@ -10,8 +10,11 @@
 
 #include "mqt/Dialect/QAssert/IR/QAssertOps.h"
 
+#include "mqt/Dialect/MQT/IR/MQTDialect.h"
 #include "mqt/Dialect/QAssert/IR/QAssertDialect.h"
+#include "mqt/Dialect/QCO/IR/QCOInterfaces.h"
 
+#include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/IR/BuiltinTypes.h"
 #include "mlir/IR/OpImplementation.h"
@@ -240,6 +243,25 @@ static void printReference(OpAsmPrinter& printer, Operation* /*op*/,
 // Operations
 //===----------------------------------------------------------------------===//
 
+/// Rejects an assertion in code that may run on only one branch of a
+/// superposition.
+///
+/// The body of a `qco.ctrl`, `qco.inv`, or `qco.pow`, and an `mqt.unitary`
+/// function, which such a body can call, may act on only one branch, so an
+/// assertion there has no defined meaning. The QCO modifier verifiers and the
+/// MQT verifier for `mqt.unitary` functions accept every
+/// `qco::UnitaryOpInterface` operation, so the check is done here.
+static LogicalResult verifyNotInUnitaryBody(Operation* op) {
+  if (isa_and_nonnull<qco::UnitaryOpInterface>(op->getParentOp())) {
+    return op->emitOpError("must not be used inside the body of a unitary "
+                           "operation such as qco.ctrl");
+  }
+  if (mqt::isUnitaryFunction(op->getParentOfType<func::FuncOp>())) {
+    return op->emitOpError("must not be used inside an mqt.unitary function");
+  }
+  return success();
+}
+
 static LogicalResult verifyMinQubits(Operation* op, ValueRange qubits,
                                      size_t minQubits) {
   if (qubits.size() < minQubits) {
@@ -249,12 +271,21 @@ static LogicalResult verifyMinQubits(Operation* op, ValueRange qubits,
   return success();
 }
 
+/// Verifies the constraints that all assertions share.
+static LogicalResult verifyAssertion(Operation* op, ValueRange qubits,
+                                     size_t minQubits) {
+  if (failed(verifyNotInUnitaryBody(op))) {
+    return failure();
+  }
+  return verifyMinQubits(op, qubits, minQubits);
+}
+
 LogicalResult SupOp::verify() {
-  return verifyMinQubits(*this, getQubitsIn(), 1);
+  return verifyAssertion(*this, getQubitsIn(), 1);
 }
 
 LogicalResult EntOp::verify() {
-  return verifyMinQubits(*this, getQubitsIn(), 2);
+  return verifyAssertion(*this, getQubitsIn(), 2);
 }
 
 // The similarity scales the reference to length 1, so its norm does not change
@@ -264,7 +295,7 @@ LogicalResult EntOp::verify() {
 static constexpr double REFERENCE_NORM_TOLERANCE = 1e-2;
 
 LogicalResult EqOp::verify() {
-  if (failed(verifyMinQubits(*this, getQubitsIn(), 1))) {
+  if (failed(verifyAssertion(*this, getQubitsIn(), 1))) {
     return failure();
   }
 
@@ -312,7 +343,7 @@ LogicalResult EqOp::verify() {
 }
 
 LogicalResult SpanOp::verify() {
-  if (failed(verifyMinQubits(*this, getQubitsIn(), 1))) {
+  if (failed(verifyAssertion(*this, getQubitsIn(), 1))) {
     return failure();
   }
 
