@@ -21,6 +21,7 @@ target_link_libraries(
     MLIRSCFDialect
     MLIRParser
     MLIRSupport
+    MLIRSupportMQT
     MLIRQCOTransforms
     MLIRTransforms
     MLIRPass)
